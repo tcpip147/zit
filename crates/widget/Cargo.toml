@@ -1,0 +1,27 @@
+[package]
+name = "widget"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+gpui.workspace = true
+unicode-segmentation.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+gpui = { workspace = true, features = ["test-support"] }
+gpui_platform.workspace = true
+
+[[example]]
+name = "text_input"
+path = "examples/text_input.rs"
+
+[[example]]
+name = "text_editor"
+path = "examples/text_editor.rs"
+
+[[example]]
+name = "tab_bar"
+path = "examples/tab_bar.rs"

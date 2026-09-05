@@ -1,0 +1,37 @@
+{
+  "tab_bar": {
+    "background": "#202124",
+    "border": "#55585E",
+    "tab_background": "#00000000",
+    "tab_hover_background": "#4A4D52",
+    "tab_active_background": "#3B3E43",
+    "text": "#DADCE0",
+    "icon": "#DADCE0",
+    "close_hover_background": "#62666D"
+  },
+  "text_input": {
+    "background": "#FFFFFFFF",
+    "hover_background": "#F8FAFCFF",
+    "disabled_background": "#E2E8F0FF",
+    "text": "#0F172AFF",
+    "placeholder": "#737373CC",
+    "border": "#64748BFF",
+    "focused_border": "#2563EBFF",
+    "disabled_border": "#94A3B8AA",
+    "selection_background": "#3B82F64D"
+  },
+  "text_editor": {
+    "background": "#FFFFFFFF",
+    "hover_background": "#F8FAFCFF",
+    "disabled_background": "#E2E8F0FF",
+    "text": "#0F172AFF",
+    "placeholder": "#737373CC",
+    "border": "#64748BFF",
+    "focused_border": "#2563EBFF",
+    "disabled_border": "#94A3B8AA",
+    "selection_background": "#3B82F64D",
+    "scrollbar_track": "#0F172A14",
+    "scrollbar_thumb": "#64748BAA",
+    "scrollbar_thumb_hover": "#64748BFF"
+  }
+}

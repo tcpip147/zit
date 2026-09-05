@@ -1,0 +1,13 @@
+/target/
+**/*.rs.bk
+*.profraw
+*.profdata
+*.log
+.env
+.env.*
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp

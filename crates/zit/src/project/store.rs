@@ -1,0 +1,272 @@
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+};
+
+use gpui::{App, AppContext, Context, Entity, EventEmitter, Global};
+
+use super::{
+    GixRepositoryLoader, OpenProjectSession, ProjectAvailability, ProjectId, ProjectMetadata,
+    ProjectPage, RepositoryLoader, SessionProject,
+};
+
+#[derive(Clone, Debug)]
+pub enum ProjectStoreEvent {
+    Restored {
+        project_ids: Vec<ProjectId>,
+        active: Option<ProjectId>,
+    },
+    MetadataChanged(ProjectId),
+    ActiveChanged(Option<ProjectId>),
+    ProjectRemoved {
+        project_id: ProjectId,
+        active: Option<ProjectId>,
+    },
+}
+
+pub struct ProjectStore {
+    projects: Vec<ProjectMetadata>,
+    pages: HashMap<ProjectId, Entity<ProjectPage>>,
+    active: Option<ProjectId>,
+    session_path: PathBuf,
+    loader: Arc<dyn RepositoryLoader>,
+}
+
+pub struct GlobalProjectStore(pub Entity<ProjectStore>);
+impl Global for GlobalProjectStore {}
+
+impl ProjectStore {
+    pub fn new(session_path: PathBuf) -> Self {
+        Self::with_loader(session_path, Arc::new(GixRepositoryLoader))
+    }
+
+    pub fn with_loader(session_path: PathBuf, loader: Arc<dyn RepositoryLoader>) -> Self {
+        Self {
+            projects: Vec::new(),
+            pages: HashMap::new(),
+            active: None,
+            session_path,
+            loader,
+        }
+    }
+
+    pub fn global(cx: &App) -> Entity<Self> {
+        cx.global::<GlobalProjectStore>().0.clone()
+    }
+    pub fn projects(&self) -> &[ProjectMetadata] {
+        &self.projects
+    }
+    pub fn active_project(&self) -> Option<&ProjectId> {
+        self.active.as_ref()
+    }
+    pub fn page(&self, id: &ProjectId) -> Option<Entity<ProjectPage>> {
+        self.pages.get(id).cloned()
+    }
+
+    pub fn restore(&mut self, cx: &mut Context<Self>) {
+        let session = match OpenProjectSession::load(&self.session_path) {
+            Ok(session) => session,
+            Err(error) => {
+                eprintln!("Zit ignored project session: {error}");
+                OpenProjectSession::default()
+            }
+        };
+        self.projects.clear();
+        self.pages.clear();
+        let mut seen = HashSet::new();
+        for saved in session.projects {
+            let mut metadata = self
+                .loader
+                .inspect(&saved.repository_path, Some(&saved.display_name));
+            if matches!(
+                metadata.availability,
+                ProjectAvailability::Unavailable { .. }
+            ) && let Ok(id) = ProjectId::new(saved.identity_key.clone())
+            {
+                metadata.id = id;
+            }
+            if !seen.insert(metadata.id.clone()) {
+                continue;
+            }
+            let id = metadata.id.clone();
+            let page = cx.new(|_| ProjectPage::new(metadata.clone(), self.loader.clone()));
+            self.projects.push(metadata);
+            self.pages.insert(id, page);
+        }
+        self.active = session
+            .active_project
+            .filter(|id| self.pages.contains_key(id))
+            .or_else(|| {
+                self.projects
+                    .iter()
+                    .find(|project| matches!(project.availability, ProjectAvailability::Available))
+                    .or_else(|| self.projects.first())
+                    .map(|project| project.id.clone())
+            });
+        let project_ids = self
+            .projects
+            .iter()
+            .map(|project| project.id.clone())
+            .collect();
+        cx.emit(ProjectStoreEvent::Restored {
+            project_ids,
+            active: self.active.clone(),
+        });
+        cx.notify();
+    }
+
+    /// Creates local repositories used to exercise the project-page UI when no
+    /// real session has been configured yet.
+    pub fn seed_test_projects(&mut self, count: usize, cx: &mut Context<Self>) {
+        if !self.projects.is_empty() || count == 0 {
+            return;
+        }
+        let root = self
+            .session_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("test-projects");
+        for number in 1..=count {
+            let path = root.join(format!("project-{number}"));
+            if let Err(error) = std::fs::create_dir_all(&path) {
+                eprintln!("Zit could not create test project {number}: {error}");
+                continue;
+            }
+            if !path.join(".git").exists()
+                && let Err(error) = gix::init(&path)
+            {
+                eprintln!("Zit could not initialize test project {number}: {error}");
+                continue;
+            }
+            let mut metadata = self.loader.inspect(&path, None);
+            metadata.display_name = format!("Test Project {number}");
+            if self
+                .projects
+                .iter()
+                .any(|project| project.id == metadata.id)
+            {
+                continue;
+            }
+            let id = metadata.id.clone();
+            let page = cx.new(|_| ProjectPage::new(metadata.clone(), self.loader.clone()));
+            self.projects.push(metadata);
+            self.pages.insert(id, page);
+        }
+        self.active = self.projects.first().map(|project| project.id.clone());
+        self.persist();
+        cx.emit(ProjectStoreEvent::Restored {
+            project_ids: self
+                .projects
+                .iter()
+                .map(|project| project.id.clone())
+                .collect(),
+            active: self.active.clone(),
+        });
+        cx.notify();
+    }
+
+    pub fn set_active(&mut self, id: Option<ProjectId>, cx: &mut Context<Self>) -> bool {
+        let id = id.filter(|id| self.pages.contains_key(id));
+        if self.active == id {
+            return false;
+        }
+        self.active = id;
+        self.persist();
+        cx.emit(ProjectStoreEvent::ActiveChanged(self.active.clone()));
+        cx.notify();
+        true
+    }
+
+    pub fn activate(&mut self, id: &ProjectId, cx: &mut Context<Self>) -> bool {
+        let Some(page) = self.pages.get(id).cloned() else {
+            return false;
+        };
+        self.set_active(Some(id.clone()), cx);
+        page.update(cx, |page, cx| page.activate(cx));
+        true
+    }
+
+    pub fn remove(&mut self, id: &ProjectId, cx: &mut Context<Self>) -> bool {
+        let Some(index) = self.projects.iter().position(|project| &project.id == id) else {
+            return false;
+        };
+        self.projects.remove(index);
+        if let Some(page) = self.pages.remove(id) {
+            page.update(cx, |page, cx| page.cancel_pending_load(cx));
+        }
+        if self.active.as_ref() == Some(id) {
+            self.active = self
+                .projects
+                .get(index)
+                .or_else(|| {
+                    index
+                        .checked_sub(1)
+                        .and_then(|index| self.projects.get(index))
+                })
+                .map(|project| project.id.clone());
+        }
+        self.persist();
+        cx.emit(ProjectStoreEvent::ProjectRemoved {
+            project_id: id.clone(),
+            active: self.active.clone(),
+        });
+        cx.notify();
+        true
+    }
+
+    pub fn update_metadata(&mut self, metadata: ProjectMetadata, cx: &mut Context<Self>) -> bool {
+        let Some(project) = self
+            .projects
+            .iter_mut()
+            .find(|project| project.id == metadata.id)
+        else {
+            return false;
+        };
+        *project = metadata.clone();
+        if let Some(page) = self.pages.get(&metadata.id) {
+            page.update(cx, |page, cx| page.update_metadata(metadata.clone(), cx));
+        }
+        self.persist();
+        cx.emit(ProjectStoreEvent::MetadataChanged(metadata.id));
+        cx.notify();
+        true
+    }
+
+    pub fn refresh_metadata(&mut self, id: &ProjectId, cx: &mut Context<Self>) -> bool {
+        let Some(existing) = self
+            .projects
+            .iter()
+            .find(|project| &project.id == id)
+            .cloned()
+        else {
+            return false;
+        };
+        let mut metadata = self
+            .loader
+            .inspect(&existing.repository_path, Some(&existing.display_name));
+        metadata.id = id.clone();
+        self.update_metadata(metadata, cx)
+    }
+
+    fn persist(&self) {
+        let session = OpenProjectSession {
+            version: super::session::SESSION_VERSION,
+            projects: self
+                .projects
+                .iter()
+                .map(|project| SessionProject {
+                    identity_key: project.id.as_str().to_owned(),
+                    repository_path: project.repository_path.clone(),
+                    display_name: project.display_name.clone(),
+                })
+                .collect(),
+            active_project: self.active.clone(),
+        };
+        if let Err(error) = session.save(&self.session_path) {
+            eprintln!("Zit could not save project session: {error}");
+        }
+    }
+}
+
+impl EventEmitter<ProjectStoreEvent> for ProjectStore {}
