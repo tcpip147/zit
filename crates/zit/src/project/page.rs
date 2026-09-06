@@ -1,11 +1,11 @@
-use std::{sync::Arc, time::Duration};
+use std::{rc::Rc, sync::Arc};
 
 use gpui::{
-    AccessibleAction, AnyElement, Context, CursorStyle, EventEmitter, InteractiveElement,
-    ListHorizontalSizingBehavior, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    Render, Role, ScrollWheelEvent, StatefulInteractiveElement, Task, UniformListScrollHandle,
-    Window, canvas, div, point, prelude::*, px, rgb, svg, uniform_list,
+    AccessibleAction, AnyElement, Context, CursorStyle, Entity, EventEmitter, InteractiveElement,
+    MouseButton, Render, Role, StatefulInteractiveElement, Task, Window, div, prelude::*, px, rgb,
+    svg,
 };
+use widget::{DataGrid, DataGridCell, DataGridColumn, DataGridRow};
 
 use super::{ProjectId, ProjectLoadState, ProjectMetadata, RepositoryLoader};
 
@@ -46,10 +46,7 @@ pub struct ProjectPage {
     loader: Arc<dyn RepositoryLoader>,
     load_task: Option<Task<()>>,
     selected_section: ProjectSection,
-    history_scroll: UniformListScrollHandle,
-    history_scroll_drag: Option<(f32, f32)>,
-    history_scrollbar_visible: bool,
-    history_scrollbar_hide_task: Option<Task<()>>,
+    history_grid: Option<Entity<DataGrid>>,
 }
 
 impl ProjectPage {
@@ -61,10 +58,7 @@ impl ProjectPage {
             loader,
             load_task: None,
             selected_section: ProjectSection::default(),
-            history_scroll: UniformListScrollHandle::new(),
-            history_scroll_drag: None,
-            history_scrollbar_visible: false,
-            history_scrollbar_hide_task: None,
+            history_grid: None,
         }
     }
 
@@ -149,6 +143,13 @@ impl ProjectPage {
                     Ok(_) => ProjectLoadState::Failed { generation, message: "Repository data did not match this project.".into() },
                     Err(error) => ProjectLoadState::Failed { generation, message: error.user_message().to_owned() },
                 };
+                page.history_grid = match &page.state {
+                    ProjectLoadState::Ready(data) if !data.commits.is_empty() => {
+                        let commits = Rc::new(data.commits.clone());
+                        Some(cx.new(|_| DataGrid::new(Self::history_columns(), commits.len(), move |index| Self::history_row(&commits[index])).expect("history columns are valid")))
+                    }
+                    _ => None,
+                };
                 page.load_task = None;
                 cx.notify();
             });
@@ -172,49 +173,12 @@ impl ProjectPage {
                 .aria_label("Repository history is empty")
                 .child("This repository has no commits yet.")
                 .into_any_element(),
-            ProjectLoadState::Ready(data) => {
-                let commit_count = data.commits.len();
-                div()
-                    .id("history-grid")
-                    .w_full()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .overflow_hidden()
-                    .child(Self::history_header())
-                    .child(
-                        div()
-                            .relative()
-                            .w_full()
-                            .flex_1()
-                            .min_h_0()
-                            .overflow_hidden()
-                            .on_scroll_wheel(cx.listener(Self::wheel_history_scrollbar))
-                            .child(
-                                uniform_list(
-                                    "history-rows",
-                                    commit_count,
-                                    cx.processor(|page, range: std::ops::Range<usize>, _, _| {
-                                        let ProjectLoadState::Ready(data) = &page.state else {
-                                            return Vec::new();
-                                        };
-                                        range
-                                            .filter_map(|index| data.commits.get(index))
-                                            .map(Self::history_row)
-                                            .collect()
-                                    }),
-                                )
-                                .size_full()
-                                .with_horizontal_sizing_behavior(
-                                    ListHorizontalSizingBehavior::FitList,
-                                )
-                                .track_scroll(&self.history_scroll),
-                            )
-                            .child(self.history_scrollbar(cx)),
-                    )
-                    .into_any_element()
-            }
+            ProjectLoadState::Ready(_) => self
+                .history_grid
+                .as_ref()
+                .expect("ready history owns a grid")
+                .clone()
+                .into_any_element(),
             ProjectLoadState::Failed { message, .. } => {
                 let label = format!("Retry loading {}", self.metadata.display_name);
                 let page = cx.entity();
@@ -249,231 +213,31 @@ impl ProjectPage {
         }
     }
 
-    fn history_header() -> AnyElement {
-        div()
-            .grid()
-            .grid_cols(5)
-            .w_full()
-            .pr_2()
-            .h(px(30.))
-            .items_center()
-            .bg(rgb(0xf1f5f9))
-            .text_color(rgb(0x475569))
-            .child(Self::history_cell("Graph", true))
-            .child(Self::history_cell("Commit", true))
-            .child(Self::history_cell("Author", true))
-            .child(Self::history_cell("Date", true))
-            .child(Self::history_cell("Hash", false))
-            .into_any_element()
-    }
-
-    fn history_cell(content: impl IntoElement, divider: bool) -> AnyElement {
-        div()
-            .h_full()
-            .min_w_0()
-            .px_2()
-            .flex()
-            .items_center()
-            .overflow_hidden()
-            .whitespace_nowrap()
-            .when(divider, |cell| {
-                cell.border_r_1().border_color(rgb(0xcbd5e1))
+    fn history_columns() -> Vec<DataGridColumn> {
+        ["Graph", "Commit", "Author", "Date", "Hash"]
+            .into_iter()
+            .enumerate()
+            .map(|(index, label)| {
+                DataGridColumn::new(label.to_ascii_lowercase(), label).divider(index < 4)
             })
-            .child(content)
-            .into_any_element()
+            .collect()
     }
 
-    fn history_row(commit: &super::CommitSummary) -> AnyElement {
+    fn history_row(commit: &super::CommitSummary) -> DataGridRow {
         let short_id = commit.object_id[..commit.object_id.len().min(8)].to_owned();
-        div()
-            .h(px(34.))
-            .w_full()
-            .min_w_0()
-            .pr_2()
-            .grid()
-            .grid_cols(5)
-            .child(Self::history_cell(
-                Self::commit_graph(commit.parent_ids.len() > 1),
-                true,
-            ))
-            .child(Self::history_cell(commit.summary.clone(), true))
-            .child(Self::history_cell(commit.author_name.clone(), true))
-            .child(Self::history_cell(
-                commit.authored_at_seconds.to_string(),
-                true,
-            ))
-            .child(Self::history_cell(short_id, false))
-            .into_any_element()
-    }
-
-    fn history_scrollbar(&self, cx: &mut Context<Self>) -> AnyElement {
-        let state = self.history_scroll.0.borrow();
-        let viewport = state.base_handle.bounds().size.height.as_f32().max(1.);
-        let max_offset = state.base_handle.max_offset().y.as_f32().max(0.);
-        let scrollable = max_offset > 0.;
-        let offset = (-state.base_handle.offset().y.as_f32()).clamp(0., max_offset);
-        let thumb_height = if max_offset > 0. {
-            (viewport * viewport / (viewport + max_offset)).max(24.)
-        } else {
-            viewport
-        };
-        let thumb_top = if max_offset > 0. {
-            offset / max_offset * (viewport - thumb_height).max(0.)
-        } else {
-            0.
-        };
-
-        div()
-            .id("history-scroll-track")
-            .absolute()
-            .right(px(2.))
-            .top(px(2.))
-            .bottom(px(2.))
-            .w(px(6.))
-            .rounded(px(3.))
-            .bg(rgb(0xe2e8f0))
-            .on_hover(cx.listener(Self::hover_history_scrollbar))
-            .when(!self.history_scrollbar_visible, |bar| {
-                bar.opacity(0.).hover(|style| style.opacity(1.))
-            })
-            .when(scrollable, |bar| {
-                bar.child(
-                    div()
-                        .id("history-scroll-thumb")
-                        .absolute()
-                        .top(px(thumb_top))
-                        .w_full()
-                        .h(px(thumb_height))
-                        .rounded(px(3.))
-                        .bg(rgb(0x94a3b8))
-                        .cursor(CursorStyle::PointingHand)
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(Self::start_history_scrollbar_drag),
-                        ),
-                )
-            })
-            .into_any_element()
-    }
-
-    fn start_history_scrollbar_drag(
-        &mut self,
-        event: &MouseDownEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let offset = self
-            .history_scroll
-            .0
-            .borrow()
-            .base_handle
-            .offset()
-            .y
-            .as_f32();
-        self.history_scroll_drag = Some((event.position.y.as_f32(), offset));
-        self.show_history_scrollbar(cx);
-        cx.stop_propagation();
-    }
-
-    fn drag_history_scrollbar(
-        &mut self,
-        event: &MouseMoveEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some((start_y, start_offset)) = self.history_scroll_drag else {
-            return;
-        };
-        let state = self.history_scroll.0.borrow();
-        let viewport = state.base_handle.bounds().size.height.as_f32().max(1.);
-        let max_offset = state.base_handle.max_offset().y.as_f32().max(0.);
-        let thumb_height = (viewport * viewport / (viewport + max_offset)).max(24.);
-        let travel = (viewport - thumb_height).max(1.);
-        let delta = event.position.y.as_f32() - start_y;
-        let new_offset = (start_offset - delta * max_offset / travel).clamp(-max_offset, 0.);
-        let x = state.base_handle.offset().x;
-        state.base_handle.set_offset(point(x, px(new_offset)));
-        drop(state);
-        cx.notify();
-    }
-
-    fn stop_history_scrollbar_drag(
-        &mut self,
-        _: &MouseUpEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.history_scroll_drag.take().is_some() {
-            self.show_history_scrollbar_temporarily(cx);
-        }
-    }
-
-    fn wheel_history_scrollbar(
-        &mut self,
-        _: &ScrollWheelEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.history_scroll.is_scrollable() {
-            self.show_history_scrollbar_temporarily(cx);
-        }
-    }
-
-    fn hover_history_scrollbar(&mut self, hovered: &bool, _: &mut Window, cx: &mut Context<Self>) {
-        if *hovered {
-            self.show_history_scrollbar(cx);
-        } else if self.history_scroll_drag.is_none() {
-            self.show_history_scrollbar_temporarily(cx);
-        }
-    }
-
-    fn show_history_scrollbar(&mut self, cx: &mut Context<Self>) {
-        self.history_scrollbar_hide_task = None;
-        if !self.history_scrollbar_visible {
-            self.history_scrollbar_visible = true;
-            cx.notify();
-        }
-    }
-
-    fn show_history_scrollbar_temporarily(&mut self, cx: &mut Context<Self>) {
-        self.show_history_scrollbar(cx);
-        let timer = cx.background_executor().timer(Duration::from_secs(1));
-        self.history_scrollbar_hide_task = Some(cx.spawn(async move |this, cx| {
-            timer.await;
-            let _ = this.update(cx, |page, cx| {
-                if page.history_scroll_drag.is_none() {
-                    page.history_scrollbar_visible = false;
-                    page.history_scrollbar_hide_task = None;
-                    cx.notify();
-                }
-            });
-        }));
-    }
-
-    fn history_drag_event_capture(&self, cx: &mut Context<Self>) -> AnyElement {
-        let page = cx.entity().downgrade();
-        canvas(
-            |_, _, _| (),
-            move |_, _, window, _| {
-                let page_for_move = page.clone();
-                window.on_mouse_event(move |event: &MouseMoveEvent, _, window, cx| {
-                    let _ = page_for_move.update(cx, |page, cx| {
-                        page.drag_history_scrollbar(event, window, cx)
-                    });
-                });
-                let page_for_up = page.clone();
-                window.on_mouse_event(move |event: &MouseUpEvent, _, window, cx| {
-                    if event.button == MouseButton::Left {
-                        let _ = page_for_up.update(cx, |page, cx| {
-                            page.stop_history_scrollbar_drag(event, window, cx)
-                        });
-                    }
-                });
-            },
-        )
-        .absolute()
-        .inset_0()
-        .into_any_element()
+        DataGridRow::new([
+            DataGridCell::new(Self::commit_graph(commit.parent_ids.len() > 1)).accessible_label(
+                if commit.parent_ids.len() > 1 {
+                    "Merge commit graph"
+                } else {
+                    "Commit graph"
+                },
+            ),
+            DataGridCell::text(commit.summary.clone()),
+            DataGridCell::text(commit.author_name.clone()),
+            DataGridCell::text(commit.authored_at_seconds.to_string()),
+            DataGridCell::text(short_id),
+        ])
     }
 
     fn commit_graph(merge: bool) -> AnyElement {
@@ -760,6 +524,5 @@ impl Render for ProjectPage {
                     .child(self.sidebar(cx))
                     .child(self.selected_content(cx)),
             )
-            .child(self.history_drag_event_capture(cx))
     }
 }

@@ -25,3 +25,7 @@ path = "examples/text_editor.rs"
 [[example]]
 name = "tab_bar"
 path = "examples/tab_bar.rs"
+
+[[example]]
+name = "data_grid"
+path = "examples/data_grid.rs"

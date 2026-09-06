@@ -109,6 +109,32 @@ pub struct TextEditorTheme {
     pub scrollbar_thumb_hover: ThemeColor,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DataGridTheme {
+    pub header_background: ThemeColor,
+    pub row_background: ThemeColor,
+    pub text: ThemeColor,
+    pub divider: ThemeColor,
+    pub scrollbar_track: ThemeColor,
+    pub scrollbar_thumb: ThemeColor,
+    pub scrollbar_thumb_hover: ThemeColor,
+}
+
+impl Default for DataGridTheme {
+    fn default() -> Self {
+        Self {
+            header_background: ThemeColor::rgb(0xf1f5f9),
+            row_background: ThemeColor::rgb(0xffffff),
+            text: ThemeColor::rgb(0x475569),
+            divider: ThemeColor::rgb(0xcbd5e1),
+            scrollbar_track: ThemeColor::rgb(0xe2e8f0),
+            scrollbar_thumb: ThemeColor::rgb(0x94a3b8),
+            scrollbar_thumb_hover: ThemeColor::rgb(0x64748b),
+        }
+    }
+}
+
 impl Default for TextEditorTheme {
     fn default() -> Self {
         Self {
@@ -127,6 +153,7 @@ pub struct Theme {
     pub tab_bar: TabBarTheme,
     pub text_input: TextFieldTheme,
     pub text_editor: TextEditorTheme,
+    pub data_grid: DataGridTheme,
 }
 
 #[derive(Debug)]
