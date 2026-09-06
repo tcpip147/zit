@@ -68,6 +68,8 @@ pub struct ProjectPage {
     branch_filter_open: bool,
     selected_history_commit: Option<super::CommitSummary>,
     selected_commit_files: Option<Result<Vec<String>, String>>,
+    selected_commit_file: Option<String>,
+    selected_commit_file_diff: Option<Result<String, String>>,
     file_load_generation: u64,
     file_load_task: Option<Task<()>>,
 }
@@ -87,6 +89,8 @@ impl ProjectPage {
             branch_filter_open: false,
             selected_history_commit: None,
             selected_commit_files: None,
+            selected_commit_file: None,
+            selected_commit_file_diff: None,
             file_load_generation: 0,
             file_load_task: None,
         }
@@ -183,6 +187,8 @@ impl ProjectPage {
     fn rebuild_history_grid(&mut self, cx: &mut Context<Self>) {
         self.selected_history_commit = None;
         self.selected_commit_files = None;
+        self.selected_commit_file = None;
+        self.selected_commit_file_diff = None;
         self.file_load_generation = self.file_load_generation.wrapping_add(1);
         self.file_load_task = None;
         let ProjectLoadState::Ready(data) = &self.state else {
@@ -242,6 +248,8 @@ impl ProjectPage {
         let commit_id = commit.object_id.clone();
         self.selected_history_commit = Some(commit);
         self.selected_commit_files = None;
+        self.selected_commit_file = None;
+        self.selected_commit_file_diff = None;
         self.file_load_task = None;
         cx.notify();
 
@@ -475,7 +483,30 @@ impl ProjectPage {
             .into_any_element()
     }
 
-    fn selected_commit_file_list(&self) -> AnyElement {
+    fn select_history_file(&mut self, path: String, cx: &mut Context<Self>) {
+        let Some(commit) = &self.selected_history_commit else { return };
+        self.file_load_generation = self.file_load_generation.wrapping_add(1);
+        let generation = self.file_load_generation;
+        self.selected_commit_file = Some(path.clone());
+        self.selected_commit_file_diff = None;
+        let loader = self.loader.clone();
+        let metadata = self.metadata.clone();
+        let commit_id = commit.object_id.clone();
+        self.file_load_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async move {
+                loader.load_commit_file_diff(&metadata, &commit_id, &path)
+            }).await;
+            let _ = this.update(cx, |page, cx| {
+                if page.file_load_generation != generation { return; }
+                page.selected_commit_file_diff = Some(result.map_err(|error| error.to_string()));
+                page.file_load_task = None;
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn selected_commit_file_list(&self, cx: &mut Context<Self>) -> AnyElement {
         let content = match &self.selected_history_commit {
             None => div()
                 .text_color(rgb(0x64748b))
@@ -494,12 +525,21 @@ impl ProjectPage {
                 Some(Ok(files)) => div()
                     .w_full()
                     .children(files.iter().cloned().map(|path| {
+                        let selected = self.selected_commit_file.as_deref() == Some(path.as_str());
+                        let selected_path = path.clone();
                         div()
+                            .id(format!("history-file-{path}"))
                             .w_full()
                             .h(px(22.))
                             .px_1()
                             .flex()
                             .items_center()
+                            .cursor(CursorStyle::PointingHand)
+                            .when(selected, |style| style.bg(rgb(0xdbeafe)))
+                            .hover(|style| style.bg(rgb(0xe2e8f0)))
+                            .on_click(cx.listener(move |page, _, _, cx| {
+                                page.select_history_file(selected_path.clone(), cx);
+                            }))
                             .child(path)
                     }))
                     .into_any_element(),
@@ -533,6 +573,19 @@ impl ProjectPage {
                     .child(content),
             )
             .into_any_element()
+    }
+
+    fn selected_commit_file_diff(&self) -> AnyElement {
+        let Some(path) = &self.selected_commit_file else {
+            return div().size_full().p_3().text_color(rgb(0x64748b)).child("Select a file to view its changes.").into_any_element();
+        };
+        let body = match &self.selected_commit_file_diff {
+            None => "Loading changes…".to_owned(),
+            Some(Ok(diff)) if diff.is_empty() => "No textual changes available.".to_owned(),
+            Some(Ok(diff)) => diff.clone(),
+            Some(Err(error)) => format!("Could not load changes: {error}"),
+        };
+        div().size_full().p_3().overflow_hidden().child(div().text_color(rgb(0x334155)).child(path.clone())).child(div().mt_2().whitespace_normal().child(body)).into_any_element()
     }
 
     fn state_content(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -618,7 +671,7 @@ impl ProjectPage {
                                         .overflow_hidden()
                                         .border_t_1()
                                         .border_color(rgb(0xcbd5e1))
-                                        .child(self.selected_commit_file_list()),
+                                        .child(self.selected_commit_file_list(cx)),
                                 ),
                         )
                         .child(
@@ -626,7 +679,8 @@ impl ProjectPage {
                                 .id("history-lower-right-pane")
                                 .w_1_2()
                                 .h_full()
-                                .min_w_0(),
+                                .min_w_0()
+                                .child(self.selected_commit_file_diff()),
                         ),
                 )
                 .into_any_element(),

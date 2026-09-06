@@ -168,6 +168,14 @@ pub trait RepositoryLoader: Send + Sync + 'static {
     ) -> Result<Vec<String>, RepositoryError> {
         Ok(Vec::new())
     }
+    fn load_commit_file_diff(
+        &self,
+        _metadata: &ProjectMetadata,
+        _commit_id: &str,
+        _path: &str,
+    ) -> Result<String, RepositoryError> {
+        Ok(String::new())
+    }
 }
 
 #[derive(Default)]
@@ -459,5 +467,24 @@ impl RepositoryLoader for GixRepositoryLoader {
         files.sort();
         files.dedup();
         Ok(files)
+    }
+
+    fn load_commit_file_diff(
+        &self,
+        metadata: &ProjectMetadata,
+        commit_id: &str,
+        path: &str,
+    ) -> Result<String, RepositoryError> {
+        let output = std::process::Command::new("git")
+            .current_dir(&metadata.repository_path)
+            .args(["diff", "--no-ext-diff", "--format=", &format!("{}^", commit_id), commit_id, "--", path])
+            .output()
+            .map_err(|error| RepositoryError::new(format!("Could not read file changes: {error}")))?;
+        if !output.status.success() {
+            return Err(RepositoryError::new(
+                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            ));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 }
