@@ -1,87 +1,58 @@
 # Implementation Plan: Component Tab Bar
 
-**Branch**: `002-component-tab-bar` | **Date**: 2026-09-05 | **Spec**: [spec.md](spec.md)
-**Input**: Feature specification from `specs/002-component-tab-bar/spec.md`
+**Branch**: No feature branch | **Date**: 2026-09-06 | **Spec**: [spec.md](spec.md)
+
+**Status**: As-built plan synchronized with the current component.
 
 ## Summary
 
-Add a reusable GPUI-native `TabBar` entity to `widget`. It owns stable tabs and page entities,
-renders SVG/name/X content with `text_xs`, selects one page, applies deterministic closure, and
-exposes typed events. A tracked horizontal `ScrollHandle` maps wheel input, clamps overflow, and
-reveals the active tab.
+Implement `TabBar` as a reusable retained-page GPUI entity in the `widget` crate. Stable `TabId` values identify fixed-order entries; each `TabSpec` owns a name, SVG reference, and retained page. Selection displays only the matching page, closure follows a deterministic neighbor rule with host veto, metadata updates preserve page identity, and the tab row uses tracked horizontal overflow.
 
 ## Technical Context
 
-**Language/Version**: Rust 2024, toolchain 1.97.1.
-**Primary Dependencies**: Existing official-Zed Git `gpui`; `unicode-segmentation` for safe labels.
-No Zed `ui` crate dependency.
-**Storage**: Process-local tab order, page entities, focus handles, active identity, and scroll state.
-**Testing**: `cargo test -p widget`, GPUI `test-support`, workspace format/check/Clippy.
-**Target Platform**: Desktop Windows, Linux, and macOS through GPUI.
-**Project Type**: Reusable UI library in the existing Cargo workspace.
-**Performance Goals**: Selection, close, hover, and scroll feedback within 100 ms; smooth 30-tab use.
-**Constraints**: One visible page; stable identity; `text_xs`; SVG and X controls; bounded horizontal
-overflow; keyboard/accessibility parity; no Git work.
-**Scale/Scope**: One module, example, and focused tests; reordering, pinning, dirty state, and persistence excluded.
+**Language/Version**: Rust 1.97.1, edition 2024
+
+**Primary Dependency**: GPUI from the official Zed repository
+
+**Assets**: Project-authored close and fallback SVGs under `crates/widget/assets/tab-bar/`
+
+**Testing**: GPUI test context in `crates/widget/tests/tab_bar_contract.rs`
+
+**Target**: Reusable desktop widget
+**Constraints**: Unique IDs, one retained page per tab, at most one active tab, deterministic close selection, pointer interaction, horizontal overflow
 
 ## Constitution Check
 
-*GATE: Passed before and after design.*
-
-| Principle | Decision | Result |
-|---|---|---|
-| I. GPUI and Git Backend | Use official workspace GPUI and its entity, event, rendering, scroll, focus, and accessibility facilities. No Git operation. | PASS |
-| II. English Specifications | All artifacts are English. | PASS |
-| III. Rust Workspace | Implement in `crates/widget`; retain `crates/zit/src/main.rs` as the executable. | PASS |
-
-No constitutional exception or additional framework is required.
+- **GPUI foundation**: PASS. The component is a GPUI entity and view.
+- **Git backend**: PASS. The component has no repository dependency and does not weaken the workspace's `gix` foundation.
+- **English specifications**: PASS.
+- **Rust workspace**: PASS. The reusable component remains in `crates/widget`.
 
 ## Project Structure
 
-### Documentation (this feature)
-
-```text
-specs/002-component-tab-bar/
-    spec.md
-    plan.md
-    research.md
-    data-model.md
-    quickstart.md
-    contracts/tab-bar-api.md
-    checklists/requirements.md
-```
-
-### Source Code (repository root)
-
 ```text
 crates/widget/
-    src/lib.rs
-    src/tab_bar.rs
-    examples/tab_bar.rs
-    assets/tab-bar/close.svg
-    assets/tab-bar/fallback-project.svg
-    tests/tab_bar_contract.rs
-    tests/tab_bar_navigation.rs
-    tests/tab_bar_scroll.rs
-    tests/tab_bar_accessibility.rs
+├── assets/tab-bar/{close.svg,fallback-project.svg,manifest.json}
+├── examples/tab_bar.rs
+├── src/lib.rs
+├── src/tab_bar.rs
+└── tests/tab_bar_contract.rs
 ```
 
-**Structure Decision**: Keep state, rendering, input, and events in `tab_bar.rs` as one reusable
-entity and export host-facing types from `lib.rs`. The host asset source resolves project SVGs;
-the component provides close and fallback assets.
+## As-Built Design
 
-## Implementation Sequence and Gates
+### State and validation
 
-1. Implement pure order, selection, closure, and identity validation transitions.
-2. Define the public API and typed selection/close events, including host close veto.
-3. Render the tab list, SVG/name/X, `text_xs`, states, and one active page.
-4. Add horizontal overflow, wheel mapping, clamping, resize handling, and active reveal.
-5. Add focus navigation and TabList/Tab/Button semantics plus accessible actions.
-6. Add example and contract/navigation/scroll/accessibility tests; run workspace checks.
+`TabBar` stores ordered entries, an optional active ID, a tracked scroll handle, a close predicate, and theme state. Construction and insertion reject duplicate IDs. An absent or unknown active ID falls back to the first entry.
 
-Pages must not be recreated during selection. Close propagation is verified before visual polish.
-Scroll input is consumed only when the horizontal offset can change.
+### Selection and closure
 
-## Complexity Tracking
+Selection scrolls toward the target and emits `SelectionChanged` only for a changed identity. Close emits `CloseRequested`, consults the host predicate, removes the entry, and selects the right neighbor before the left neighbor when the active entry closes.
 
-No constitution violations require justification.
+### Rendering
+
+The component renders one tab row and only the active retained page. Each tab uses a fixed width, clipped label, SVG icon, separate close target, pointer hover states, and semantic tab metadata. Empty icon references use the bundled fallback.
+
+## Validation
+
+Contract tests cover initial fallback, stable page identity, duplicate rejection, deterministic closure, close veto, and metadata updates. Interactive overflow and pointer presentation are available in `crates/widget/examples/tab_bar.rs`.

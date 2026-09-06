@@ -2,134 +2,103 @@
 
 **Feature Branch**: Not created; no branch-creation hook is configured.
 **Created**: 2026-09-05
-**Status**: Draft
-**Input**: User description (translated): "Add a tab bar to component. The tab bar owns tabs, each tab owns its page, and selecting a tab navigates to that page, similar to the VS Code editor. Each tab contains an SVG image, a project name, and an X-image close button. When tabs fill and overflow the available horizontal width, the mouse wheel scrolls them horizontally. Tab-bar text uses text_xs."
+**Status**: Implemented and synchronized with the current component
+**Input**: User description (translated): "Add a reusable tab bar in which each tab owns a retained page, selecting a tab navigates to that page, and each tab displays a project icon, project name, and close control."
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Switch Between Project Pages (Priority: P1)
+### User Story 1 - Switch Between Retained Pages (Priority: P1)
 
-As a user working with several projects, I can select a project tab and immediately see the page associated with it.
+As a user, I can select a project tab and immediately see its associated page without recreating that page.
 
-**Why this priority**: Selecting a tab and displaying its page is the component's primary purpose.
-**Independent Test**: Create three tabs with distinct pages, select each tab, and verify that exactly one tab is active and only its page is shown.
+**Why this priority**: Selection and retained page navigation are the component's primary purpose.
+
+**Independent Test**: Create three tabs with distinct page identities, select each tab repeatedly, and verify that only the matching retained page is visible.
 
 **Acceptance Scenarios**:
 
-1. **Given** multiple tabs, **When** I select an inactive tab, **Then** it becomes active and its page replaces the previously visible page.
-2. **Given** an active tab, **When** I select it again, **Then** it remains active without duplicating or recreating its page.
-3. **Given** a populated tab bar, **When** it first appears, **Then** exactly one associated page is visible.
+1. **Given** multiple tabs, **When** the user selects an inactive tab, **Then** it becomes active and its associated page replaces the previously visible page.
+2. **Given** an active tab, **When** it is selected again, **Then** it remains active without recreating its page.
+3. **Given** no valid initial active identity, **When** a non-empty tab bar is created, **Then** the first tab becomes active.
+4. **Given** duplicate stable identities, **When** construction or insertion is attempted, **Then** the duplicate is rejected without creating ambiguous navigation state.
 
 ---
 
 ### User Story 2 - Identify and Close Tabs (Priority: P1)
 
-As a user, I can identify a tab by its project icon and name and close it with its X button.
+As a user, I can identify a project tab by icon and name and close it with a dedicated close control.
 
-**Why this priority**: Clear identity and predictable closure are essential for managing multiple pages.
-**Independent Test**: Inspect each tab's icon, name, and close control; close inactive and active tabs and verify selection and page results.
+**Why this priority**: Predictable identity and closure are required to manage multiple project pages.
+
+**Independent Test**: Close inactive, active, and final tabs and verify the remaining order, active identity, page identity, and emitted close events.
 
 **Acceptance Scenarios**:
 
-1. **Given** any tab, **When** I inspect it, **Then** it contains an SVG project image, project name, and X-image close button in a consistent order.
-2. **Given** an inactive tab, **When** I close it, **Then** only that tab and page are removed and the active page remains unchanged.
-3. **Given** an active tab with a right neighbor, **When** I close it, **Then** the right neighbor becomes active and its page is shown.
-4. **Given** an active tab without a right neighbor, **When** I close it, **Then** the nearest left neighbor becomes active and its page is shown.
-5. **Given** the only tab, **When** I close it, **Then** the tab bar and page area show an empty state.
-6. **Given** a close button, **When** I activate it, **Then** it closes the tab without selecting the tab or starting a scroll gesture.
+1. **Given** a tab, **When** it is displayed, **Then** it shows an SVG project icon, project name, and close button in that order.
+2. **Given** an empty icon reference, **When** the tab is displayed, **Then** the bundled fallback project icon is used.
+3. **Given** an inactive tab, **When** it is closed, **Then** the active page does not change.
+4. **Given** an active tab, **When** it is closed, **Then** the right neighbor becomes active when present, otherwise the left neighbor becomes active, or no page remains when the final tab closes.
+5. **Given** the host rejects a close request, **When** the close control is activated, **Then** the tab and active state remain unchanged.
+6. **Given** tab metadata changes, **When** its name or icon is updated, **Then** the same retained page remains associated with the tab.
 
 ---
 
-### User Story 3 - Reach Overflowing Tabs (Priority: P2)
+### User Story 3 - Reach Tabs in an Overflowing Row (Priority: P2)
 
-As a user with many open projects, I can scroll the tab row horizontally with the mouse wheel so every tab remains reachable.
+As a user, I can reach tabs beyond the visible width through the row's horizontal scrolling behavior.
 
-**Why this priority**: Overflow handling supports realistic multi-project workloads.
-**Independent Test**: Add enough tabs to overflow, wheel-scroll in both directions, and select tabs initially outside the viewport.
+**Why this priority**: Fixed-width tabs must remain usable when many projects are open.
 
-**Acceptance Scenarios**:
-
-1. **Given** overflowing tabs, **When** I rotate the mouse wheel over the row, **Then** the row scrolls horizontally in the corresponding direction.
-2. **Given** either scroll boundary, **When** I continue outward, **Then** scrolling remains within the content bounds.
-3. **Given** an off-screen tab becomes active through host state, **When** selection changes, **Then** the active tab is brought fully into view.
-4. **Given** all tabs fit, **When** I rotate the wheel, **Then** the row does not shift unnecessarily.
-
----
-
-### User Story 4 - Operate Tabs Accessibly (Priority: P2)
-
-As a keyboard or assistive-technology user, I can identify, select, and close tabs and understand which tab is active.
-
-**Why this priority**: The primary navigation control must provide equivalent input paths.
-**Independent Test**: Navigate without a pointer, select and close tabs, and inspect names, positions, and selected states.
+**Independent Test**: Display enough tabs to overflow, use supported horizontal scrolling input, and programmatically select tabs outside the current viewport.
 
 **Acceptance Scenarios**:
 
-1. **Given** focus in the tab bar, **When** I navigate and select a tab, **Then** focus and the visible page follow it.
-2. **Given** assistive technology, **When** I inspect a tab, **Then** its name, role, position, and selected state are available.
-3. **Given** focus on a close control, **When** I activate it, **Then** normal close behavior occurs and focus moves to a valid remaining tab.
+1. **Given** tabs exceed the row width, **When** the user provides horizontal scrolling input, **Then** the row moves within its available bounds.
+2. **Given** an off-screen tab is selected, **When** selection completes, **Then** the row requests that tab be revealed.
+3. **Given** all tabs fit, **When** no overflow exists, **Then** the row remains at its normal position.
 
 ### Edge Cases
 
-- Duplicate project names do not affect stable tab identity.
-- Empty and long names do not overlap the close button; complete names remain available non-visually.
-- A missing or invalid SVG uses a consistent fallback while preserving all tab actions.
-- Rapid selection and closure never show a page whose tab was removed.
-- Resizing recalculates overflow without changing the active tab.
-- Wheel and trackpad input over an overflowing row produce bounded horizontal movement.
-- Closing a tab while scrolled keeps the remaining offset valid.
-- The tab bar remains usable in light/dark appearances and supported display scales.
+- Duplicate project names remain valid because stable tab identities are independent of labels.
+- Long names are visually clipped without overlapping the close control, while the complete name remains the tab's accessible label.
+- Closing a scrolled tab retains a valid remaining active identity and scroll position.
+- Rapid repeated selection of the active tab does not duplicate events or pages.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
 - **FR-001**: The component MUST represent an ordered collection of zero or more tabs.
-- **FR-002**: Every tab MUST have stable identity, one associated page, a project name, SVG image, and X-image close control.
-- **FR-003**: At most one tab MUST be active, and only its associated page MUST be visible.
-- **FR-004**: Selecting a tab MUST activate it and navigate to its page.
-- **FR-005**: Selecting the active tab MUST be idempotent and MUST NOT duplicate its page.
-- **FR-006**: Closing an inactive tab MUST remove only that tab and page without changing the active tab.
-- **FR-007**: Closing the active tab MUST select the nearest right tab when available, otherwise the nearest left tab; closing the last tab MUST produce an empty state.
-- **FR-008**: Closing a tab MUST NOT also select it or trigger another tab action.
-- **FR-009**: Tabs MUST preserve readable name and close-control space rather than shrinking indefinitely on overflow.
-- **FR-010**: Overflowing rows MUST convert wheel and horizontal trackpad input into bounded horizontal scrolling.
-- **FR-011**: A non-overflowing row MUST NOT acquire an unnecessary scroll offset.
-- **FR-012**: The active tab MUST be fully visible after any selection change.
-- **FR-013**: Tab-bar labels MUST use the project's `text_xs` typography token.
-- **FR-014**: Active, inactive, hovered, and focused tabs MUST be visually distinguishable in light and dark appearances.
-- **FR-015**: Actionable tab bodies and close controls MUST show hover feedback and an appropriate hand pointer.
-- **FR-016**: Users MUST be able to reach, select, and close tabs without pointer input.
-- **FR-017**: Tabs MUST expose name, ordered position, and selected state; close controls MUST expose an action-specific accessible name.
-- **FR-018**: Missing or invalid SVG images MUST use a consistent fallback without blocking tab behavior.
-- **FR-019**: Resizing MUST update overflow bounds while preserving the active tab and page.
-- **FR-020**: The tab bar MUST be reusable without depending on repository operations, a particular page layout, or global application state.
-
-### Key Entities
-
-- **Tab Bar**: Ordered navigation container with active identity and a horizontal viewport.
-- **Tab**: Stable item containing project identity, name, SVG, close action, selected state, and one page association.
-- **Page**: Content associated with one tab and visible only while that tab is active.
-- **Tab Viewport**: Visible horizontal portion of the tab row and its bounded scroll position.
+- **FR-002**: Every tab MUST have a unique stable identity, one retained page, a project name, an SVG icon reference, and a close control.
+- **FR-003**: Duplicate stable identities MUST be rejected during construction and insertion.
+- **FR-004**: At most one tab MUST be active, and only the active tab's page MUST be displayed.
+- **FR-005**: A missing or unknown initial active identity MUST fall back to the first tab when one exists.
+- **FR-006**: Selecting a tab MUST preserve its page identity, reveal the tab in the row, and emit a selection change only when the active identity changes.
+- **FR-007**: Closing an inactive tab MUST leave the active identity unchanged.
+- **FR-008**: Closing the active tab MUST select the right neighbor when available, otherwise the left neighbor; closing the last tab MUST leave the component empty.
+- **FR-009**: The component MUST emit a close request before removal and MUST permit the host to veto removal.
+- **FR-010**: Activating the close control MUST NOT also select the tab.
+- **FR-011**: Updating a tab's name or icon MUST preserve its stable identity and retained page.
+- **FR-012**: An empty icon reference MUST use the bundled fallback project SVG.
+- **FR-013**: Tabs MUST use fixed readable space, extra-small text, clipping for long labels, and separate hoverable pointer targets for the tab and close control.
+- **FR-014**: Overflowing tabs MUST be contained in a horizontally scrollable row, and selection MUST request the active item be scrolled into view.
+- **FR-015**: The tab row, each tab, and each close control MUST expose appropriate roles, accessible names, ordered position, item count, and selected state where applicable.
+- **FR-016**: The component MUST remain independent of repository operations, page layout, and global application state.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: With at least 20 tabs, 100% of selections show the matching page and leave exactly one tab active.
-- **SC-002**: Active and inactive closure tests at every row position remove exactly one tab and apply the specified next-selection rule in 100% of cases.
-- **SC-003**: Users can bring any tab in a 30-tab overflowing row into view and select it using mouse-wheel scrolling without resizing the window.
-- **SC-004**: Scrolling exposes no blank space beyond either content boundary across tested viewport sizes and scales.
-- **SC-005**: Names and close controls have zero overlaps for empty, typical, duplicate, and long-name cases.
-- **SC-006**: All labels use extra-small typography and every actionable tab body and close control provides visible hover feedback in light and dark checks.
-- **SC-007**: Keyboard and assistive-technology tests can select and close every tab and report the correct active tab with zero pointer-only steps.
-- **SC-008**: Selection, scrolling, and closure feedback becomes visible within 100 milliseconds in the reference environment.
+- **SC-001**: Contract tests preserve the same page identity across 100% of repeated selection and metadata-update checks.
+- **SC-002**: Active and inactive close tests at the beginning, middle, and end remove exactly one tab and choose the specified neighbor in 100% of cases.
+- **SC-003**: Duplicate identities are rejected in 100% of construction and insertion checks.
+- **SC-004**: Selection, closure, and metadata feedback is visible within 100 milliseconds under normal desktop use.
+- **SC-005**: Every rendered tab exposes its full name, ordered position, total count, and correct selected state.
 
 ## Assumptions
 
-- The first tab is active unless the host supplies another valid active identity.
-- Tabs have a practical minimum width and may visually truncate long names while preserving the complete accessible name.
-- The host decides whether unsaved work permits closure before requesting tab removal.
-- Reordering, pinning, preview tabs, split editors, drag-and-drop, context menus, badges, dirty indicators, and reopening closed tabs are outside scope.
-- The component owns navigation state and tab-to-page associations but does not prescribe page content.
-- The existing component module remains in the Rust workspace and complies with the GPUI and English-specification constitution rules.
+- Pointer selection and close activation are in scope. Dedicated keyboard navigation bindings and assistive-technology click handlers are not present in the synchronized component scope.
+- The host is responsible for supplying valid non-empty custom asset paths; automatic fallback applies only to an empty icon reference.
+- Horizontal scrolling uses the platform's supported horizontal scrolling behavior. Explicit conversion of vertical wheel input into horizontal movement is outside the synchronized scope.
+- Reordering, pinning, preview tabs, drag-and-drop, context menus, badges, dirty indicators, and reopening closed tabs are outside scope.
+- The component uses the project's theme values but cross-platform light/dark visual certification is outside this feature's automated contract.

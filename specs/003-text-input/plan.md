@@ -1,124 +1,56 @@
-﻿# Implementation Plan: Reusable TextInput Widget
+# Implementation Plan: Reusable TextInput Widget
 
-**Branch**: `001-text-input` | **Date**: 2026-09-04 | **Spec**: [spec.md](spec.md)
+**Branch**: No feature branch | **Date**: 2026-09-06 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/component/001-text-input/spec.md`
-
-**Note**: This plan ends after Phase 1 design. Implementation tasks are generated separately.
+**Status**: As-built plan synchronized with the current widget.
 
 ## Summary
 
-Create or extend the Zit Cargo workspace and a reusable `TextInput` in the reusable `widget`
-crate. The widget will use GPUI's focus, action dispatch, clipboard, text shaping, painting, and
-`EntityInputHandler` facilities to provide single-line editing, Unicode-safe navigation and
-deletion, pointer selection, IME composition, undo/redo, disabled behavior, placeholder display,
-host-observable value changes, and a blinking one-pixel caret that inherits the input text color.
-Caret blinking will be driven by a cancellable GPUI task tied to focus and caret eligibility, with
-an epoch/generation guard preventing stale timers from changing current state. Pointer-acquired
-focus will synchronously enter the visible caret phase in the same interaction update, rather than
-waiting for deferred focus observation or the first blink interval. The rendered control will also
-enforce a minimum height equal to one text line plus its vertical chrome so external constraints
-cannot clip text, selection, or caret rendering. Pure editing
-transitions will be separated from GPUI event and render integration so most behavior can be tested
-deterministically, with GPUI window tests and a small example validating integration and visual
-interaction.
+Implement a reusable, single-line GPUI text input with normalized content, grapheme-safe editing, keyboard and pointer selection, clipboard operations, undo/redo snapshots, IME composition, horizontal cursor reveal, deterministic caret blinking, theme integration, and exactly-once committed-value events.
 
 ## Technical Context
 
-**Language/Version**: Rust 1.95.0, aligned with the official Zed repository toolchain at planning
-time
+**Language/Version**: Rust 1.97.1, edition 2024
 
-**Primary Dependencies**: `gpui` from `https://github.com/zed-industries/zed`; GPUI default
-desktop features; `unicode-segmentation` for extended grapheme boundaries
+**Primary Dependencies**: GPUI and `unicode-segmentation`
 
-**Storage**: In-memory widget value, selection, composition, and bounded-lifetime edit history;
-no persistent storage
+**Testing**: GPUI test-support suites under `crates/widget/tests/text_input_*.rs`
 
-**Testing**: Rust unit tests via `cargo test`; GPUI test support for focus, actions, input-handler,
-pointer, clipboard, constrained-height layout, immediate click-focus caret visibility, and
-rendering integration; runnable example for manual cross-platform checks
-
-**Target Platform**: Desktop platforms supported by the selected official GPUI revision, with
-Windows, macOS, Linux X11, and Linux Wayland behavior validated where runners are available
-
-**Project Type**: Reusable Rust UI component library in a Cargo workspace
-
-**Performance Goals**: Visible response to normal focus, cursor, selection, and edit interactions
-within 100 ms; cursor visibility toggles at a stable 500 ms interval while eligible; linear-time
-edits and shaping are acceptable for ordinary single-line field values
-
-**Constraints**: Official GPUI Git dependency only; single-line plain text; user-perceived
-character-safe navigation/deletion; UTF-16 conversion at the platform input boundary; one active
-blink loop per widget; stale blink timers cannot change current state; pointer focus must expose a
-visible caret in its first resulting frame; widget height cannot fall below one line plus vertical
-chrome; no application-specific business logic
-
-**Scale/Scope**: One reusable `widget` crate, one public TextInput component, one example, and
-tests covering 39 functional requirements across ordinary desktop-sized values
+**Target**: Reusable desktop widget
+**Constraints**: Single-line value, user-perceived character boundaries, platform key bindings, provisional IME state distinct from committed text, no application business rules
 
 ## Constitution Check
 
-Design review against Zit Constitution v1.2.0 (2026-09-05):
-
-| Rule | Planned compliance | Status |
-|---|---|---|
-| GPUI foundation | Use `gpui = { git = "https://github.com/zed-industries/zed" }` and GPUI-native facilities; no substitute | Design compliant; implementation unverified |
-| Git backend | Include gix in the application dependency layer; generic widgets do not perform Git operations | Design compliant; implementation unverified |
-| English specifications | Maintain specification prose in English | Reviewed |
-| Rust workspace | Root Cargo.toml includes crates/zit and crates/widget | Design compliant; implementation unverified |
-| Application entry point | Package and executable named zit at crates/zit/src/main.rs; widget is an additional library | Design compliant; implementation unverified |
-
-Imported toolchain versions, dependency revisions, and API research are historical candidates.
-Revalidate them against the actual Zit dependency resolution before implementation. No Cargo
-workspace or implementation is present at migration time; prior project PASS results are not Zit evidence.
+- **GPUI foundation**: PASS. Rendering, focus, input handling, clipboard, timers, and events use GPUI.
+- **Git backend**: PASS. The widget has no Git behavior and does not change the workspace foundation.
+- **English specifications**: PASS.
+- **Rust workspace**: PASS. The component remains in `crates/widget`.
 
 ## Project Structure
 
-### Documentation (this feature)
-
 ```text
-specs/component/001-text-input/
-├── plan.md
-├── research.md
-├── data-model.md
-├── quickstart.md
-├── contracts/
-│   └── text-input.md
-└── tasks.md                 # Created later by $speckit-tasks
+crates/widget/
+├── examples/text_input.rs
+├── src/lib.rs
+├── src/text_input.rs
+├── src/theme.rs
+└── tests/text_input_*.rs
 ```
 
-### Source Code (repository root)
+## As-Built Design
 
-The root Cargo.toml includes crates/zit and crates/widget. The application package is named zit,
-with its manifest at crates/zit/Cargo.toml and entry point at crates/zit/src/main.rs.
-The widget library does not replace the application. Shared setup must reuse existing files.
+### State and edits
 
+`TextInput` owns committed and display content, placeholder, enabled/focus state, directed selection, provisional composition, undo/redo snapshots, horizontal offset, blink generation, and theme. External value replacement resets selection and history without emitting a user event.
 
-```text
-Cargo.toml                   # Workspace and official GPUI dependency
-rust-toolchain.toml          # Toolchain aligned with the selected GPUI revision
-crates/
-├── zit/
-│   ├── Cargo.toml           # Primary application; includes gix
-│   └── src/main.rs          # Application entry point
-└── widget/
-    ├── Cargo.toml
-    ├── src/
-    │   ├── lib.rs           # Public exports and action registration entry point
-    │   └── text_input.rs    # TextInput state, editing, GPUI input, and rendering
-    ├── tests/
-    │   └── text_input_*.rs  # Focused public-contract and GPUI interaction suites
-    └── examples/
-        └── text_input.rs    # Manual end-to-end validation host
-```
+### Input integration
 
-**Structure Decision**: Use the root Cargo workspace with `crates/zit` as the primary application and
-`crates/widget` as an additional reusable library crate. Keep the first component cohesive in one module until
-separate internal modules are justified by implementation size. Public-contract integration tests
-and a runnable example live with the crate that owns the component.
+One initialization function registers platform key bindings. GPUI input-handler methods convert UTF-16 platform ranges to safe UTF-8 boundaries, expose selected and marked ranges, and distinguish provisional composition updates from commit and cancellation.
 
-## Complexity Tracking
+### Rendering and lifecycle
 
-No constitution violations or exceptional complexity are planned.
+A custom element shapes one line, paints selection, marked text, and a display-pixel-aligned caret, and keeps the cursor visible horizontally. Focus and interaction restart a generation-checked 500 ms blink cycle. Minimum height derives from current line metrics plus visual chrome.
 
+## Validation
 
+Focused suites cover foundation, editing, navigation, pointer focus, clipboard, history, IME, blinking, rendering constraints, Unicode regression, and independent configuration. The interactive example exercises multiple instances.

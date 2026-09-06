@@ -33,22 +33,9 @@
 
 ## Notes
 
-- All 16 checks pass. This review validates the specification, not implementation or runtime behavior.
-- The mandated SVG asset format and inherited GPUI/gix constraints are retained as requirements;
-  no rendering APIs, module structure, or additional implementation choices are prescribed.
-- All specification prose, including translated input, is English as required by Constitution v1.1.0.
-- Coverage: FR-001/002 map to Story 1; FR-003/004 to Story 2 and SC-003;
-  FR-005/006 to Story 2; FR-007 to Story 1, Edge Cases, and SC-002;
-  FR-008 to Story 3, Edge Cases, and SC-006; FR-009/010 to Story 3;
-  FR-011 to Edge Cases and SC-006.
-- GNOME/Adwaita is the explicit Linux reference assumption. Exact platform versions,
-  reference screenshots, minimum dimensions, and supported scales must be fixed during planning.
-- No clarification questions remain. Ready for `$speckit-plan`.
-
-- Menu amendment reviewed: FR-012 through FR-017 are covered by Story 4 and SC-007/008.
-- Title-text and menu exclusion assumptions were replaced consistently. Initial repository commands
-  are explicitly disabled; Exit and About are functional. Menu prose remains English.
-- Application bootstrap constraint reviewed: `crates/zit/src/main.rs` calls
-  `gpui_platform::application()` directly and no `window_shell` crate is specified.
+- Revalidated on 2026-09-06 against the current application shell, window-command boundary, assets, menus, About overlay, and startup-error behavior.
+- All 16 checks pass with no clarification markers.
+- Unverified exact-native visuals, automatic dark styling, and cross-platform scale certification were removed from the synchronized product scope and retained only as explicit validation gaps.
+- The disabled repository commands, enabled Exit and About behavior, platform-specific control ordering, and reopen behavior match the current source.
 
 

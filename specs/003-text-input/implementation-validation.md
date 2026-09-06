@@ -1,8 +1,8 @@
 ﻿# TextInput Implementation Validation
 
-**Zit status (2026-09-05)**: NOT RUN. No implementation is present in this repository.
-All evidence below is an imported historical record from the source project, not a Zit result.
-Retain it for reference and record new Zit evidence separately after implementation.
+**Zit status (2026-09-06)**: IMPLEMENTED. The current repository contains the TextInput source,
+example, and focused automated test suites referenced below. Historical manual cross-platform
+and usability evidence remains pending where noted.
 
 ## Historical Source-Project Record
 

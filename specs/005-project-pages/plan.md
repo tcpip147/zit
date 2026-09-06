@@ -2,85 +2,69 @@
 
 **Branch**: `[005-project-pages]` | **Date**: 2026-09-06 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/005-project-pages/spec.md`
+**Status**: As-built plan synchronized with the current application.
 
 ## Summary
 
-Replace the shell's placeholder project tabs with retained pages backed by one application-wide project store. Restore a lightweight ordered session immediately, resolve each repository to a canonical identity with `gix`, and start commit-history loading on a background executor only when the corresponding page first becomes active. Each page owns an explicit lazy-load state and generation token so repeated activation, retry, close, and late completion remain isolated.
+Replace placeholder page content with retained project workspaces backed by one application-wide project store. Restore a versioned session, inspect repositories through `gix`, deduplicate canonical Git identities, create one retained page per project, and load commit history on first activation. Each page owns independent workspace navigation, a toolbar action boundary, explicit load state, generation-checked background work, a virtualized history table, and retry behavior.
 
 ## Technical Context
 
 **Language/Version**: Rust 1.97.1, edition 2024
 
-**Primary Dependencies**: GPUI from the official Zed repository, `gix` 0.87.1, `serde`/`serde_json`, existing local `widget` crate
+**Primary Dependencies**: GPUI, `gpui_platform`, `gix` 0.87.1, `serde`, `serde_json`, and local `widget`
 
-**Storage**: Versioned JSON session file in the per-user application data directory; Git repository data remains in each local repository
+**Storage**: Versioned JSON session under the platform application-data/configuration directory or `ZIT_SESSION` override
 
-**Testing**: `cargo test --workspace`, GPUI test-support contexts, temporary on-disk Git repositories for integration tests, `cargo clippy`, and `cargo fmt`
+**Testing**: GPUI contracts and temporary on-disk repositories in `crates/zit/tests/project_*.rs`
 
-**Target Platform**: Windows, macOS, and Linux desktop targets already supported by the application shell
-
-**Project Type**: Native desktop application in a Cargo workspace
-
-**Performance Goals**: Restore and display 20 project tabs within 2 seconds; show loading/ready feedback within 100 ms of activation; never load inactive history; keep tab switching responsive while history is read
-
-**Constraints**: UI-thread work must remain lightweight; Git operations use `gix`, not the Git CLI; exactly one retained page per open repository; at most one current history load per project; closed-page results must be ignored; offline-capable
-
-**Scale/Scope**: Up to 20 concurrently restored local repositories for acceptance validation; session-scoped history cache; commit listing for the active project; opening new repositories and live refresh are excluded
+**Target Platform**: Windows, Linux, and macOS desktop
+**Constraints**: One global store, one retained page per canonical repository, inactive history stays unloaded, one current load generation, stale/closed results ignored, Git access through `gix`
 
 ## Constitution Check
 
-*GATE: Passed before Phase 0 and re-checked after Phase 1.*
-
-- **GPUI foundation**: PASS. Project pages, global state, events, retained entities, background work, and rendering remain GPUI-native.
-- **Git backend**: PASS. Repository discovery, identity, HEAD resolution, and revision walking use `gix` 0.87.1. No Git CLI fallback is planned.
-- **English specifications**: PASS. The specification and all planning artifacts are written in English.
-- **Rust workspace**: PASS. Work remains in the existing root Cargo workspace and its member crates.
-- **Application entry point**: PASS. `zit` remains the executable package and `crates/zit/src/main.rs` remains its entry point.
-- **Post-design re-check**: PASS. The data model, UI contract, persistence design, and validation guide introduce no constitutional exception.
+- **GPUI foundation**: PASS. Global state, retained pages, events, background tasks, and rendering are GPUI-native.
+- **Git backend**: PASS. Discovery and history traversal use `gix`; no Git CLI fallback exists.
+- **English specifications**: PASS.
+- **Rust workspace and entry point**: PASS. Work remains in `crates/zit` and startup remains in `crates/zit/src/main.rs`.
 
 ## Project Structure
 
-### Documentation (this feature)
-
 ```text
-specs/005-project-pages/
-├── plan.md
-├── research.md
-├── data-model.md
-├── quickstart.md
-├── contracts/
-│   └── project-page.md
-└── tasks.md                 # Created later by $speckit-tasks
+crates/zit/
+├── assets/project-toolbar/*.svg
+├── src/main.rs
+├── src/shell.rs
+├── src/project/
+│   ├── mod.rs
+│   ├── model.rs
+│   ├── repository.rs
+│   ├── session.rs
+│   ├── store.rs
+│   └── page.rs
+└── tests/project_*.rs
+
+crates/widget/src/tab_bar.rs
 ```
 
-### Source Code (repository root)
+## As-Built Design
 
-```text
-crates/
-├── zit/
-│   ├── Cargo.toml
-│   ├── src/
-│   │   ├── main.rs          # Initialize global store and restore session
-│   │   ├── shell.rs         # Bind store entries to retained tabs/pages
-│   │   └── project/
-│   │       ├── mod.rs       # Module exports and initialization
-│   │       ├── model.rs     # IDs, metadata, history, load states
-│   │       ├── store.rs     # Application-wide authoritative project store
-│   │       ├── session.rs   # Versioned JSON load/save and normalization
-│   │       ├── repository.rs# gix discovery, identity, metadata, history
-│   │       └── page.rs      # GPUI project page and lazy-load lifecycle
-│   └── tests/
-│       ├── project_store_contract.rs
-│       ├── project_page_contract.rs
-│       └── project_session_integration.rs
-└── widget/
-    ├── src/tab_bar.rs       # Existing retained tab/page and event contract
-    └── tests/tab_bar_contract.rs
-```
+### Repository and session boundary
 
-**Structure Decision**: Keep domain and page orchestration in the `zit` application crate because project state is application-wide and not a reusable generic widget. Continue using the existing `widget::TabBar` as the navigation/retention primitive. Split the project feature by model, persistence, repository access, store, and page lifecycle so Git work is testable without rendering and page behavior is testable with injected loaders.
+`GixRepositoryLoader` discovers a repository, derives canonical Git-directory identity, preserves unavailable entries with safe diagnostics, and walks HEAD history into owned commit summaries. `OpenProjectSession` reads and atomically replaces versioned JSON while preserving project order and the active ID.
 
-## Complexity Tracking
+### Global store and shell
 
-No constitutional violations require justification.
+`ProjectStore` owns ordered metadata, retained page entities, active identity, persistence, and events. Restore deduplicates identities and chooses the persisted active project or an available fallback. `ZitShell` builds `TabSpec` values, reconciles selection/close/metadata events, activates only the selected retained page, and renders the empty state through `TabBar`.
+
+### Project page
+
+`ProjectPage` owns metadata, load generation, background task, load state, selected File Status/History/Search section, virtual history scroll state, and toolbar events. First activation starts one background history load; ready data is retained, failure exposes Retry, and cancellation invalidates late completion. History renders graph, summary, author, date, and short hash columns with a draggable transient scrollbar.
+
+### Development bootstrap
+
+When no restored projects exist, current startup code seeds three local test repositories and may replace the first with a machine-specific sample repository. This is development scaffolding, not a product requirement, and remains isolated in store helper methods and `main.rs`.
+
+## Validation
+
+Store, session, repository, page, performance, and tab-bar contracts cover ordered uniqueness, persistence, availability isolation, stable page identity, activation-only loading, retry, stale results, canonical aliases, history summaries, empty repositories, project-local section state, and 20-project startup behavior.

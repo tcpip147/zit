@@ -31,5 +31,7 @@
 
 ## Notes
 
-- SVG and `text_xs` are explicit user requirements and established product constraints.
-- The specification is ready for `$speckit-clarify` or `$speckit-plan`.
+- Revalidated on 2026-09-06 against the current tab-bar source and contract tests. All 16 checks pass with no clarification markers.
+- SVG and extra-small typography remain explicit product constraints.
+- Keyboard bindings, accessible click activation, vertical-wheel conversion, and invalid non-empty SVG fallback were removed because they are not present in the synchronized component.
+- Stable page identity, deterministic close selection, close veto, metadata updates, empty-icon fallback, horizontal overflow, and semantic tab metadata match the current source.
