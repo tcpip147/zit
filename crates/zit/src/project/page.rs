@@ -2,8 +2,9 @@ use std::{rc::Rc, sync::Arc};
 
 use gpui::{
     AccessibleAction, AnyElement, Bounds, Context, CursorStyle, Entity, EventEmitter,
-    InteractiveElement, MouseButton, PathBuilder, Render, Role, StatefulInteractiveElement, Task,
-    Window, canvas, div, point, prelude::*, px, quad, rgb, size, svg,
+    InteractiveElement, MouseButton, Path, PathBuilder, Pixels, Point, Render, Role,
+    StatefulInteractiveElement, Task, Window, canvas, div, point, prelude::*, px, quad, rgb, size,
+    svg,
 };
 use widget::{DataGrid, DataGridCell, DataGridColumn, DataGridRow};
 
@@ -38,6 +39,14 @@ pub enum ProjectSection {
     History,
     Search,
 }
+
+#[derive(Clone)]
+struct CachedGraphPath {
+    path: Path<Pixels>,
+    color: gpui::Rgba,
+}
+
+type CommitGraphPathCache = Rc<Vec<CachedGraphPath>>;
 
 pub struct ProjectPage {
     metadata: ProjectMetadata,
@@ -146,7 +155,18 @@ impl ProjectPage {
                 page.history_grid = match &page.state {
                     ProjectLoadState::Ready(data) if !data.commits.is_empty() => {
                         let commits = Rc::new(data.commits.clone());
-                        Some(cx.new(|_| DataGrid::new(Self::history_columns(), commits.len(), move |index| Self::history_row(&commits[index])).expect("history columns are valid")))
+                        let graph_paths = Rc::new(
+                            commits
+                                .iter()
+                                .map(Self::build_commit_graph_paths)
+                                .collect::<Vec<_>>(),
+                        );
+                        Some(cx.new(|_| {
+                            DataGrid::new(Self::history_columns(), commits.len(), move |index| {
+                                Self::history_row(&commits[index], graph_paths[index].clone())
+                            })
+                            .expect("history columns are valid")
+                        }))
                     }
                     _ => None,
                 };
@@ -225,7 +245,10 @@ impl ProjectPage {
         ]
     }
 
-    fn history_row(commit: &super::CommitSummary) -> DataGridRow {
+    fn history_row(
+        commit: &super::CommitSummary,
+        graph_paths: CommitGraphPathCache,
+    ) -> DataGridRow {
         let graph_label = if commit.branches.is_empty() {
             if commit.is_head {
                 "HEAD".to_owned()
@@ -271,7 +294,8 @@ impl ProjectPage {
                     .child(commit.summary.clone()),
             );
         DataGridRow::new([
-            DataGridCell::new(Self::commit_graph(commit)).accessible_label(graph_label),
+            DataGridCell::new(Self::commit_graph(commit, graph_paths))
+                .accessible_label(graph_label),
             DataGridCell::new(commit_content).accessible_label(commit.summary.clone()),
             DataGridCell::text(format!("{} <{}>", commit.author_name, commit.author_email)),
             DataGridCell::text(Self::format_commit_time(
@@ -312,56 +336,95 @@ impl ProjectPage {
         rgb(COLORS[index % COLORS.len()])
     }
 
-    fn commit_graph(commit: &super::CommitSummary) -> AnyElement {
+    fn build_commit_graph_paths(commit: &super::CommitSummary) -> CommitGraphPathCache {
+        const LANE_SPACING: f32 = 12.;
+        const LANE_INSET: f32 = 8.;
+        const ROW_HEIGHT: f32 = 24.;
+        let lane_x = |lane: usize| px(LANE_INSET + lane as f32 * LANE_SPACING);
+        let center_y = px(ROW_HEIGHT / 2.);
+        let mut paths = Vec::with_capacity(commit.input_edges.len() + commit.output_edges.len());
+
+        for edge in &commit.input_edges {
+            let mut path = PathBuilder::stroke(px(2.));
+            let start = point(lane_x(edge.from_lane), px(0.));
+            let end = point(lane_x(edge.to_lane), center_y);
+            path.move_to(start);
+            if edge.from_lane == edge.to_lane {
+                path.line_to(end);
+            } else {
+                let control_offset = (end.y - start.y) * 0.6;
+                path.cubic_bezier_to(
+                    end,
+                    point(start.x, start.y + control_offset),
+                    point(end.x, end.y - control_offset),
+                );
+            }
+            if let Ok(path) = path.build() {
+                paths.push(CachedGraphPath {
+                    path,
+                    color: Self::graph_color(edge.color),
+                });
+            }
+        }
+        for edge in &commit.output_edges {
+            let mut path = PathBuilder::stroke(px(2.));
+            let start = point(lane_x(edge.from_lane), center_y);
+            let end = point(lane_x(edge.to_lane), px(ROW_HEIGHT));
+            path.move_to(start);
+            if edge.from_lane == edge.to_lane {
+                path.line_to(end);
+            } else {
+                let control_offset = (end.y - start.y) * 0.6;
+                path.cubic_bezier_to(
+                    end,
+                    point(start.x, start.y + control_offset),
+                    point(end.x, end.y - control_offset),
+                );
+            }
+            if let Ok(path) = path.build() {
+                paths.push(CachedGraphPath {
+                    path,
+                    color: Self::graph_color(edge.color),
+                });
+            }
+        }
+        Rc::new(paths)
+    }
+
+    fn translate_graph_path(path: &Path<Pixels>, origin: Point<Pixels>) -> Path<Pixels> {
+        let mut translated = path.clone();
+        translated.bounds.origin = point(
+            translated.bounds.origin.x + origin.x,
+            translated.bounds.origin.y + origin.y,
+        );
+        for vertex in &mut translated.vertices {
+            vertex.xy_position = point(
+                vertex.xy_position.x + origin.x,
+                vertex.xy_position.y + origin.y,
+            );
+        }
+        translated
+    }
+
+    fn commit_graph(
+        commit: &super::CommitSummary,
+        graph_paths: CommitGraphPathCache,
+    ) -> AnyElement {
         const LANE_SPACING: f32 = 12.;
         const LANE_INSET: f32 = 8.;
         let marker = commit.commit_lane.clone();
         let is_head = commit.is_head;
-        let inputs = commit.input_edges.clone();
-        let outputs = commit.output_edges.clone();
         canvas(
             |_, _, _| (),
             move |bounds, _, window, _| {
                 let lane_x =
                     |lane: usize| bounds.origin.x + px(LANE_INSET + lane as f32 * LANE_SPACING);
                 let center_y = bounds.origin.y + bounds.size.height / 2.;
-                for edge in &inputs {
-                    let mut path = PathBuilder::stroke(px(2.));
-                    let start = point(lane_x(edge.from_lane), bounds.origin.y);
-                    let end = point(lane_x(edge.to_lane), center_y);
-                    path.move_to(start);
-                    if edge.from_lane == edge.to_lane {
-                        path.line_to(end);
-                    } else {
-                        let control_offset = (end.y - start.y) * 0.6;
-                        path.cubic_bezier_to(
-                            end,
-                            point(start.x, start.y + control_offset),
-                            point(end.x, end.y - control_offset),
-                        );
-                    }
-                    if let Ok(path) = path.build() {
-                        window.paint_path(path, Self::graph_color(edge.color));
-                    }
-                }
-                for edge in &outputs {
-                    let mut path = PathBuilder::stroke(px(2.));
-                    let start = point(lane_x(edge.from_lane), center_y);
-                    let end = point(lane_x(edge.to_lane), bounds.bottom());
-                    path.move_to(start);
-                    if edge.from_lane == edge.to_lane {
-                        path.line_to(end);
-                    } else {
-                        let control_offset = (end.y - start.y) * 0.6;
-                        path.cubic_bezier_to(
-                            end,
-                            point(start.x, start.y + control_offset),
-                            point(end.x, end.y - control_offset),
-                        );
-                    }
-                    if let Ok(path) = path.build() {
-                        window.paint_path(path, Self::graph_color(edge.color));
-                    }
+                for cached in graph_paths.iter() {
+                    window.paint_path(
+                        Self::translate_graph_path(&cached.path, bounds.origin),
+                        cached.color,
+                    );
                 }
                 let center = point(lane_x(marker.lane), center_y);
                 window.paint_quad(quad(

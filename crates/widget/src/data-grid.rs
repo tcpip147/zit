@@ -8,7 +8,7 @@
 use std::{fmt, rc::Rc, time::Duration};
 
 use gpui::{
-    AnyElement, Context, CursorStyle, InteractiveElement, ListHorizontalSizingBehavior,
+    AnyElement, App, Context, CursorStyle, InteractiveElement, ListHorizontalSizingBehavior,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Render, Role,
     ScrollStrategy, ScrollWheelEvent, SharedString, StatefulInteractiveElement, Task,
     UniformListScrollHandle, Window, canvas, div, point, prelude::*, px, uniform_list,
@@ -111,6 +111,7 @@ impl fmt::Display for DataGridError {
 impl std::error::Error for DataGridError {}
 
 type RowRenderer = Rc<dyn Fn(usize) -> DataGridRow>;
+type RowMouseDownHandler = Rc<dyn Fn(usize, &MouseDownEvent, &mut Window, &mut App)>;
 const COLUMN_RESIZE_HIT_WIDTH: Pixels = px(8.);
 const MIN_COLUMN_WIDTH: f32 = 40.;
 
@@ -126,6 +127,8 @@ pub struct DataGrid {
     columns: Vec<DataGridColumn>,
     row_count: usize,
     render_row: RowRenderer,
+    row_mouse_down_handler: Option<RowMouseDownHandler>,
+    selected_row: Option<usize>,
     row_height: Pixels,
     header_height: Pixels,
     theme: DataGridTheme,
@@ -150,6 +153,8 @@ impl DataGrid {
             columns,
             row_count,
             render_row: Rc::new(render_row),
+            row_mouse_down_handler: None,
+            selected_row: None,
             row_height: px(24.),
             header_height: px(24.),
             theme: DataGridTheme::default(),
@@ -195,6 +200,35 @@ impl DataGrid {
     pub fn is_scrollbar_visible(&self) -> bool {
         self.scrollbar_visible
     }
+    pub fn selected_row(&self) -> Option<usize> {
+        self.selected_row
+    }
+    pub fn select_row(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
+        let selected_row = index.filter(|index| *index < self.row_count);
+        if self.selected_row != selected_row {
+            self.selected_row = selected_row;
+            cx.notify();
+        }
+    }
+    pub fn on_row_mouse_down(
+        mut self,
+        handler: impl Fn(usize, &MouseDownEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.row_mouse_down_handler = Some(Rc::new(handler));
+        self
+    }
+    pub fn set_on_row_mouse_down(
+        &mut self,
+        handler: impl Fn(usize, &MouseDownEvent, &mut Window, &mut App) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        self.row_mouse_down_handler = Some(Rc::new(handler));
+        cx.notify();
+    }
+    pub fn clear_on_row_mouse_down(&mut self, cx: &mut Context<Self>) {
+        self.row_mouse_down_handler = None;
+        cx.notify();
+    }
     pub fn set_rows(
         &mut self,
         row_count: usize,
@@ -203,6 +237,9 @@ impl DataGrid {
     ) {
         self.row_count = row_count;
         self.render_row = Rc::new(render_row);
+        if self.selected_row.is_some_and(|index| index >= row_count) {
+            self.selected_row = None;
+        }
         self.clamp_scroll();
         cx.notify();
     }
@@ -384,7 +421,9 @@ impl DataGrid {
         row_height: Pixels,
         theme: &DataGridTheme,
         index: usize,
+        selected: bool,
         row: DataGridRow,
+        mouse_down_handler: Option<RowMouseDownHandler>,
     ) -> AnyElement {
         let label = row.accessible_label;
         let mut cells = row.cells.into_iter();
@@ -392,12 +431,22 @@ impl DataGrid {
             .id(("data-grid-row", index))
             .role(Role::Row)
             .aria_row_index(index + 2)
+            .aria_selected(selected)
             .when_some(label, |d, l| d.aria_label(l))
             .h(row_height)
             .w_full()
             .pr_2()
             .flex()
-            .bg(theme.row_background.gpui())
+            .bg(if selected {
+                theme.selected_row_background.gpui()
+            } else {
+                theme.row_background.gpui()
+            })
+            .when_some(mouse_down_handler, |row, handler| {
+                row.on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                    handler(index, event, window, cx);
+                })
+            })
             .children(columns.iter().enumerate().map(|(i, c)| {
                 let cell = cells.next().unwrap_or_else(|| DataGridCell::text(""));
                 Self::sized_cell(
@@ -651,6 +700,16 @@ impl Render for DataGrid {
         let theme = self.theme.clone();
         let height = self.row_height;
         let renderer = self.render_row.clone();
+        let selected_row = self.selected_row;
+        let consumer_mouse_down_handler = self.row_mouse_down_handler.clone();
+        let grid = cx.entity();
+        let row_mouse_down_handler: RowMouseDownHandler =
+            Rc::new(move |index, event, window, cx| {
+                let _ = grid.update(cx, |grid, cx| grid.select_row(Some(index), cx));
+                if let Some(handler) = &consumer_mouse_down_handler {
+                    handler(index, event, window, cx);
+                }
+            });
         div()
             .id(("data-grid", cx.entity_id()))
             .role(Role::Grid)
@@ -675,7 +734,17 @@ impl Render for DataGrid {
                     .child(
                         uniform_list("data-grid-rows", self.row_count, move |range, _, _| {
                             range
-                                .map(|i| Self::row(&columns, height, &theme, i, renderer(i)))
+                                .map(|i| {
+                                    Self::row(
+                                        &columns,
+                                        height,
+                                        &theme,
+                                        i,
+                                        selected_row == Some(i),
+                                        renderer(i),
+                                        Some(row_mouse_down_handler.clone()),
+                                    )
+                                })
                                 .collect()
                         })
                         .size_full()
@@ -716,5 +785,18 @@ mod data_grid_tests {
         assert_eq!(left, DataGridColumnWidth::Fraction(140.));
         assert_eq!(right, DataGridColumnWidth::Fraction(60.));
         assert_eq!(140_f32 / 60., 280_f32 / 120.);
+    }
+
+    #[test]
+    fn row_mouse_down_handler_is_optional_and_configurable() {
+        let columns = vec![DataGridColumn::new("value", "Value")];
+        let grid = DataGrid::new(columns, 1, |_| {
+            DataGridRow::new([DataGridCell::text("row")])
+        })
+        .expect("valid grid");
+        assert!(grid.row_mouse_down_handler.is_none());
+
+        let grid = grid.on_row_mouse_down(|index, _, _, _| assert_eq!(index, 0));
+        assert!(grid.row_mouse_down_handler.is_some());
     }
 }

@@ -151,6 +151,8 @@ description: "Dependency-ordered implementation tasks for the reusable DataGrid 
 - [X] T036 Store resized columns as proportional weights so their ratios survive grid and window size changes in `crates/widget/src/data-grid.rs`
 - [X] T037 Align body-cell flex sizing with header cells by moving padding and clipping into an inner content container in `crates/widget/src/data-grid.rs`
 - [X] T038 Set the default DataGrid header and body-row heights to 24 pixels while preserving height configuration APIs in `crates/widget/src/data-grid.rs`
+- [X] T039 Add an optional row mouse-down callback API and forward the row index, mouse event, window, and application contexts from `crates/widget/src/data-grid.rs`
+- [X] T040 Add single-row selection on mouse-down, selected-row accessibility state, and a theme-configurable selection background in `crates/widget/src/data-grid.rs` and `crates/widget/src/theme.rs`
 
 ---
 

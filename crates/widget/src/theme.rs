@@ -114,6 +114,7 @@ pub struct TextEditorTheme {
 pub struct DataGridTheme {
     pub header_background: ThemeColor,
     pub row_background: ThemeColor,
+    pub selected_row_background: ThemeColor,
     pub text: ThemeColor,
     pub divider: ThemeColor,
     pub scrollbar_track: ThemeColor,
@@ -126,6 +127,7 @@ impl Default for DataGridTheme {
         Self {
             header_background: ThemeColor::rgb(0xf1f5f9),
             row_background: ThemeColor::rgb(0xffffff),
+            selected_row_background: ThemeColor::rgb(0xdbeafe),
             text: ThemeColor::rgb(0x475569),
             divider: ThemeColor::rgb(0xcbd5e1),
             scrollbar_track: ThemeColor::rgb(0xe2e8f0),

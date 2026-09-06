@@ -113,8 +113,10 @@ As a Zit maintainer, I can replace the project page's private history-table impl
 - **FR-021**: Dragging a header boundary MUST resize the columns on both sides, keep their combined width stable, apply the same widths to header and body cells, and enforce a 40-pixel minimum column width.
 - **FR-021a**: A user-resized column layout MUST be stored as proportional weights so its column ratios remain stable when the grid or window width changes.
 - **FR-022**: Column resize dragging MUST continue and terminate when the pointer moves or is released outside the grid.
-- **FR-023**: Sorting, filtering, column reordering, row selection, cell editing, and horizontal scrolling MUST remain outside this feature's scope.
+- **FR-023**: Sorting, filtering, column reordering, cell editing, and horizontal scrolling MUST remain outside this feature's scope.
 - **FR-024**: The default header and uniform body-row heights MUST both be 24 pixels while remaining configurable.
+- **FR-025**: The grid MUST allow consumers to register or clear an optional left-button row mouse-down callback that receives the zero-based row index, the originating mouse event, and the GPUI window and application contexts after the grid updates its selection.
+- **FR-026**: A left-button mouse-down on a body row MUST make that row the grid's single selected row, expose its zero-based index to consumers, mark it selected for assistive technologies, and render it with a theme-configurable selected-row background color.
 
 ### Key Entities
 
@@ -122,6 +124,8 @@ As a Zit maintainer, I can replace the project page's private history-table impl
 - **Column Definition**: The ordered description of one header and corresponding cell position, including its label and width behavior.
 - **Row Provider**: A data-agnostic producer that supplies cell content for requested visible row ranges.
 - **Grid Row**: One uniform-height ordered collection of cells associated with a row index.
+- **Row Mouse-Down Handler**: An optional consumer callback invoked for a left-button press on a rendered row, carrying that row's zero-based index and the original interaction contexts.
+- **Row Selection**: The optional zero-based index of the one selected row, cleared when the selected index no longer exists after a row-count update.
 - **Grid Cell**: Text or custom visual content constrained to one declared column.
 - **Grid Viewport**: The visible body region, current vertical offset, and measurable overflow bounds.
 - **Scroll Control**: The track, proportional thumb, visibility state, and active drag information belonging to one grid.
