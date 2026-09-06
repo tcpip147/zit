@@ -451,7 +451,7 @@ impl ProjectPage {
         };
         div()
             .w_full()
-            .p_3()
+            .p(px(5.))
             .overflow_hidden()
             .flex()
             .flex_col()
@@ -558,17 +558,10 @@ impl ProjectPage {
         div()
             .w_full()
             .min_h_0()
-            .p_2()
+            .p(px(5.))
             .flex()
             .flex_col()
-            .child(
-                div()
-                    .id("history-files-scroll")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(content),
-            )
+            .child(content)
             .into_any_element()
     }
 
@@ -669,7 +662,7 @@ impl ProjectPage {
                                         .id("history-commit-metadata")
                                         .flex_1()
                                         .min_h_0()
-                                        .overflow_y_scroll()
+                                        .overflow_hidden()
                                         .child(commit_scroll),
                                 )
                                 .child(

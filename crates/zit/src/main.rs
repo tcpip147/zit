@@ -74,6 +74,7 @@ fn main() {
             store.restore(cx);
             store.seed_test_projects(3, cx);
             store.set_first_test_project(r"D:\Project\git-graph-sample".into(), cx);
+            store.set_test_project_repository(1, r"D:\Project\zed".into(), cx);
         });
         cx.bind_keys([
             KeyBinding::new("left", MenuLeft, None),

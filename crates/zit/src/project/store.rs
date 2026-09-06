@@ -128,7 +128,11 @@ impl ProjectStore {
             .unwrap_or_else(|| std::path::Path::new("."))
             .join("test-projects");
         for number in 1..=count {
-            let path = root.join(format!("project-{number}"));
+            let path = if number == 2 {
+                std::path::PathBuf::from(r"D:\Project\zed")
+            } else {
+                root.join(format!("project-{number}"))
+            };
             if let Err(error) = std::fs::create_dir_all(&path) {
                 eprintln!("Zit could not create test project {number}: {error}");
                 continue;
@@ -164,6 +168,26 @@ impl ProjectStore {
             active: self.active.clone(),
         });
         cx.notify();
+    }
+
+    pub fn set_test_project_repository(
+        &mut self,
+        index: usize,
+        repository_path: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(existing) = self.projects.get(index).cloned() else { return false; };
+        let mut metadata = self.loader.inspect(&repository_path, Some(&existing.display_name));
+        metadata.display_name = existing.display_name;
+        let new_id = metadata.id.clone();
+        let page = cx.new(|_| ProjectPage::new(metadata.clone(), self.loader.clone()));
+        self.pages.remove(&existing.id);
+        self.pages.insert(new_id.clone(), page);
+        self.projects[index] = metadata;
+        if self.active.as_ref() == Some(&existing.id) { self.active = Some(new_id); }
+        self.persist();
+        cx.notify();
+        true
     }
 
     pub fn set_active(&mut self, id: Option<ProjectId>, cx: &mut Context<Self>) -> bool {
