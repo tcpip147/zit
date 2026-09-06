@@ -446,7 +446,7 @@ impl ProjectPage {
             format!("{}\n\n{}", commit.summary, commit.message_body)
         };
         div()
-            .size_full()
+            .w_full()
             .p_3()
             .overflow_hidden()
             .flex()
@@ -559,13 +559,6 @@ impl ProjectPage {
             .flex_col()
             .child(
                 div()
-                    .h(px(24.))
-                    .flex_none()
-                    .text_color(rgb(0x64748b))
-                    .child("Files"),
-            )
-            .child(
-                div()
                     .id("history-files-scroll")
                     .flex_1()
                     .min_h_0()
@@ -660,7 +653,7 @@ impl ProjectPage {
                                         .id("history-commit-metadata")
                                         .flex_1()
                                         .min_h_0()
-                                        .overflow_hidden()
+                                        .overflow_y_scroll()
                                         .child(self.selected_commit_details()),
                                 )
                                 .child(
