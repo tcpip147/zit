@@ -111,6 +111,7 @@ As a Zit maintainer, I can replace the project page's private history-table impl
 - **FR-019**: The generic grid MUST NOT contain Git-specific labels, commit formatting, repository operations, or project-page load-state behavior.
 - **FR-020**: Each boundary between header columns MUST expose an 8-pixel-wide horizontal resize target centered on the divider and use a horizontal-resize pointer cursor.
 - **FR-021**: Dragging a header boundary MUST resize the columns on both sides, keep their combined width stable, apply the same widths to header and body cells, and enforce a 40-pixel minimum column width.
+- **FR-021a**: A user-resized column layout MUST be stored as proportional weights so its column ratios remain stable when the grid or window width changes.
 - **FR-022**: Column resize dragging MUST continue and terminate when the pointer moves or is released outside the grid.
 - **FR-023**: Sorting, filtering, column reordering, row selection, cell editing, and horizontal scrolling MUST remain outside this feature's scope.
 
@@ -136,6 +137,7 @@ As a Zit maintainer, I can replace the project page's private history-table impl
 - **SC-006**: Automated dependency checks find zero references to project, repository, or commit domain types inside the reusable grid module.
 - **SC-007**: Accessibility inspection reports table structure and the correct visible header and cell relationships for 100% of tested grid configurations.
 - **SC-008**: Every internal header boundary can be dragged in either direction without either adjacent column becoming narrower than 40 pixels or header/body alignment diverging.
+- **SC-009**: After a boundary resize, changing the grid viewport width preserves the resulting column-width ratios.
 
 ## Assumptions
 

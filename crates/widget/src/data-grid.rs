@@ -284,11 +284,6 @@ impl DataGrid {
             .when_some(label, |d, label| d.aria_label(label))
             .h_full()
             .min_w_0()
-            .px_2()
-            .flex()
-            .items_center()
-            .overflow_hidden()
-            .whitespace_nowrap()
             .text_color(theme.text.gpui())
             .when(column.divider, |d| {
                 d.border_r_1().border_color(theme.divider.gpui())
@@ -297,7 +292,17 @@ impl DataGrid {
                 DataGridColumnWidth::Fixed(w) => d.w(w).flex_none(),
                 DataGridColumnWidth::Fraction(weight) => d.flex_basis(px(0.)).flex_grow(weight),
             })
-            .child(child)
+            .child(
+                div()
+                    .size_full()
+                    .min_w_0()
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(child),
+            )
             .into_any_element()
     }
     fn header(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -458,6 +463,9 @@ impl DataGrid {
         else {
             return;
         };
+        for (column, width) in self.columns.iter_mut().zip(widths) {
+            column.width = DataGridColumnWidth::Fraction(width);
+        }
         self.column_resize_drag = Some(ColumnResizeDrag {
             boundary,
             start_x: event.position.x.as_f32(),
@@ -474,9 +482,9 @@ impl DataGrid {
             MIN_COLUMN_WIDTH - drag.left_width,
             drag.right_width - MIN_COLUMN_WIDTH,
         );
-        self.columns[drag.boundary].width = DataGridColumnWidth::Fixed(px(drag.left_width + delta));
+        self.columns[drag.boundary].width = DataGridColumnWidth::Fraction(drag.left_width + delta);
         self.columns[drag.boundary + 1].width =
-            DataGridColumnWidth::Fixed(px(drag.right_width - delta));
+            DataGridColumnWidth::Fraction(drag.right_width - delta);
         cx.notify();
     }
     fn stop_column_resize(&mut self, cx: &mut Context<Self>) {
@@ -659,6 +667,15 @@ mod data_grid_tests {
         );
         assert_eq!(drag.left_width + delta, 160.);
         assert_eq!(drag.right_width - delta, MIN_COLUMN_WIDTH);
+    }
+
+    #[test]
+    fn resized_widths_remain_proportional() {
+        let left = DataGridColumnWidth::Fraction(140.);
+        let right = DataGridColumnWidth::Fraction(60.);
+        assert_eq!(left, DataGridColumnWidth::Fraction(140.));
+        assert_eq!(right, DataGridColumnWidth::Fraction(60.));
+        assert_eq!(140_f32 / 60., 280_f32 / 120.);
     }
 }
 

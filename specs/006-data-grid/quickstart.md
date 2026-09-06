@@ -49,6 +49,7 @@ Verify:
 6. Long cell content is clipped without crossing column dividers.
 7. Two grids maintain different scroll positions.
 8. Dragging any internal header divider resizes both adjacent columns; the pointer can leave the grid before release, and neither column becomes narrower than 40 pixels.
+9. After resizing columns, resize the application window and verify that the selected column-width ratios remain unchanged.
 
 ## Project integration validation
 
