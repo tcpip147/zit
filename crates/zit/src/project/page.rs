@@ -1,9 +1,9 @@
 use std::{rc::Rc, sync::Arc};
 
 use gpui::{
-    AccessibleAction, AnyElement, Context, CursorStyle, Entity, EventEmitter, InteractiveElement,
-    MouseButton, Render, Role, StatefulInteractiveElement, Task, Window, div, prelude::*, px, rgb,
-    svg,
+    AccessibleAction, AnyElement, Bounds, Context, CursorStyle, Entity, EventEmitter,
+    InteractiveElement, MouseButton, PathBuilder, Render, Role, StatefulInteractiveElement, Task,
+    Window, canvas, div, point, prelude::*, px, quad, rgb, size, svg,
 };
 use widget::{DataGrid, DataGridCell, DataGridColumn, DataGridRow};
 
@@ -214,69 +214,184 @@ impl ProjectPage {
     }
 
     fn history_columns() -> Vec<DataGridColumn> {
-        ["Graph", "Commit", "Author", "Date", "Hash"]
-            .into_iter()
-            .enumerate()
-            .map(|(index, label)| {
-                DataGridColumn::new(label.to_ascii_lowercase(), label).divider(index < 4)
-            })
-            .collect()
+        vec![
+            DataGridColumn::new("graph", "Graph").fixed(px(200.)),
+            DataGridColumn::new("commit", "Description").fraction(1.),
+            DataGridColumn::new("author", "Author").fixed(px(200.)),
+            DataGridColumn::new("date", "Date").fixed(px(120.)),
+            DataGridColumn::new("hash", "Hash")
+                .fixed(px(100.))
+                .divider(false),
+        ]
     }
 
     fn history_row(commit: &super::CommitSummary) -> DataGridRow {
-        let short_id = commit.object_id[..commit.object_id.len().min(8)].to_owned();
+        let graph_label = if commit.branches.is_empty() {
+            if commit.is_head {
+                "HEAD".to_owned()
+            } else {
+                format!("Graph lane {}", commit.commit_lane.lane)
+            }
+        } else {
+            format!(
+                "{}{}",
+                if commit.is_head { "HEAD, " } else { "" },
+                commit.branches.join(", ")
+            )
+        };
+        let commit_content = div()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap_1()
+            .when(commit.is_head, |content| {
+                content.child(
+                    div()
+                        .flex_none()
+                        .size(px(9.))
+                        .rounded_full()
+                        .border_2()
+                        .border_color(Self::graph_color(commit.commit_lane.color))
+                        .bg(rgb(0xffffff)),
+                )
+            })
+            .children(commit.branches.iter().cloned().map(|label| {
+                div()
+                    .flex_none()
+                    .px_1()
+                    .rounded(px(3.))
+                    .bg(rgb(0xdbeafe))
+                    .child(label)
+            }))
+            .child(
+                div()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(commit.summary.clone()),
+            );
         DataGridRow::new([
-            DataGridCell::new(Self::commit_graph(commit.parent_ids.len() > 1)).accessible_label(
-                if commit.parent_ids.len() > 1 {
-                    "Merge commit graph"
-                } else {
-                    "Commit graph"
-                },
-            ),
-            DataGridCell::text(commit.summary.clone()),
-            DataGridCell::text(commit.author_name.clone()),
-            DataGridCell::text(commit.authored_at_seconds.to_string()),
-            DataGridCell::text(short_id),
+            DataGridCell::new(Self::commit_graph(commit)).accessible_label(graph_label),
+            DataGridCell::new(commit_content).accessible_label(commit.summary.clone()),
+            DataGridCell::text(format!("{} <{}>", commit.author_name, commit.author_email)),
+            DataGridCell::text(Self::format_commit_time(
+                commit.commit_time_seconds,
+                commit.commit_time_offset_minutes,
+            )),
+            DataGridCell::text(commit.object_id[..commit.object_id.len().min(8)].to_owned()),
         ])
     }
 
-    fn commit_graph(merge: bool) -> AnyElement {
-        div()
-            .relative()
-            .w_full()
-            .h_full()
-            .child(
-                div()
-                    .absolute()
-                    .left(px(17.))
-                    .top(px(0.))
-                    .w(px(2.))
-                    .h_full()
-                    .bg(rgb(0x94a3b8)),
-            )
-            .when(merge, |graph| {
-                graph.child(
-                    div()
-                        .absolute()
-                        .left(px(18.))
-                        .top(px(16.))
-                        .w(px(18.))
-                        .h(px(2.))
-                        .bg(rgb(0x8b5cf6)),
-                )
-            })
-            .child(
-                div()
-                    .absolute()
-                    .left(px(12.))
-                    .top(px(11.))
-                    .size(px(12.))
-                    .rounded_full()
-                    .border_1()
-                    .border_color(rgb(0x2563eb))
-                    .bg(rgb(0xffffff)),
-            )
-            .into_any_element()
+    fn format_commit_time(seconds: i64, offset_minutes: i32) -> String {
+        let local_seconds = seconds.saturating_add(i64::from(offset_minutes) * 60);
+        let days = local_seconds.div_euclid(86_400);
+        let seconds_of_day = local_seconds.rem_euclid(86_400);
+        let hour = seconds_of_day / 3_600;
+        let minute = seconds_of_day % 3_600 / 60;
+
+        // Convert days since 1970-01-01 to the proleptic Gregorian calendar.
+        let shifted = days + 719_468;
+        let era = shifted.div_euclid(146_097);
+        let day_of_era = shifted - era * 146_097;
+        let year_of_era =
+            (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+        let mut year = year_of_era + era * 400;
+        let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+        let month_prime = (5 * day_of_year + 2) / 153;
+        let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+        let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+        year += i64::from(month <= 2);
+
+        format!("{year:04}-{month:02}-{day:02} {hour:02}:{minute:02}")
+    }
+
+    fn graph_color(index: usize) -> gpui::Rgba {
+        const COLORS: [u32; 8] = [
+            0x2563eb, 0x8b5cf6, 0x059669, 0xdc2626, 0xd97706, 0x0891b2, 0xdb2777, 0x4f46e5,
+        ];
+        rgb(COLORS[index % COLORS.len()])
+    }
+
+    fn commit_graph(commit: &super::CommitSummary) -> AnyElement {
+        const LANE_SPACING: f32 = 12.;
+        const LANE_INSET: f32 = 8.;
+        let marker = commit.commit_lane.clone();
+        let is_head = commit.is_head;
+        let inputs = commit.input_edges.clone();
+        let outputs = commit.output_edges.clone();
+        canvas(
+            |_, _, _| (),
+            move |bounds, _, window, _| {
+                let lane_x =
+                    |lane: usize| bounds.origin.x + px(LANE_INSET + lane as f32 * LANE_SPACING);
+                let center_y = bounds.origin.y + bounds.size.height / 2.;
+                for edge in &inputs {
+                    let mut path = PathBuilder::stroke(px(2.));
+                    let start = point(lane_x(edge.from_lane), bounds.origin.y);
+                    let end = point(lane_x(edge.to_lane), center_y);
+                    path.move_to(start);
+                    if edge.from_lane == edge.to_lane {
+                        path.line_to(end);
+                    } else {
+                        let control_offset = (end.y - start.y) * 0.6;
+                        path.cubic_bezier_to(
+                            end,
+                            point(start.x, start.y + control_offset),
+                            point(end.x, end.y - control_offset),
+                        );
+                    }
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, Self::graph_color(edge.color));
+                    }
+                }
+                for edge in &outputs {
+                    let mut path = PathBuilder::stroke(px(2.));
+                    let start = point(lane_x(edge.from_lane), center_y);
+                    let end = point(lane_x(edge.to_lane), bounds.bottom());
+                    path.move_to(start);
+                    if edge.from_lane == edge.to_lane {
+                        path.line_to(end);
+                    } else {
+                        let control_offset = (end.y - start.y) * 0.6;
+                        path.cubic_bezier_to(
+                            end,
+                            point(start.x, start.y + control_offset),
+                            point(end.x, end.y - control_offset),
+                        );
+                    }
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, Self::graph_color(edge.color));
+                    }
+                }
+                let center = point(lane_x(marker.lane), center_y);
+                window.paint_quad(quad(
+                    Bounds::new(center - point(px(4.5), px(4.5)), size(px(9.), px(9.))),
+                    px(4.5),
+                    if is_head {
+                        rgb(0xffffff)
+                    } else {
+                        Self::graph_color(marker.color)
+                    },
+                    if is_head { px(2.) } else { px(1.) },
+                    if is_head {
+                        Self::graph_color(marker.color)
+                    } else {
+                        rgb(0xffffff)
+                    },
+                    /*
+                    if is_head {λισ px(2.) } else { px(1.) },
+                    if is_head {
+                        Self::graph_color(marker.color)
+                    } else {
+                       .website rgb(0xffffff)
+                    },
+                    */
+                    Default::default(),
+                ));
+            },
+        )
+        .size_full()
+        .into_any_element()
     }
 
     fn toolbar_button(
@@ -524,5 +639,20 @@ impl Render for ProjectPage {
                     .child(self.sidebar(cx))
                     .child(self.selected_content(cx)),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProjectPage;
+
+    #[test]
+    fn formats_commit_time_with_repository_offset() {
+        assert_eq!(ProjectPage::format_commit_time(0, 0), "1970-01-01 00:00");
+        assert_eq!(
+            ProjectPage::format_commit_time(946_684_800, 540),
+            "2000-01-01 09:00"
+        );
+        assert_eq!(ProjectPage::format_commit_time(0, -60), "1969-12-31 23:00");
     }
 }

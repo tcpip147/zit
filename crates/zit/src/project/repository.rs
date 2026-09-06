@@ -1,6 +1,139 @@
-use std::{fmt, fs, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt, fs,
+    path::Path,
+};
 
-use super::{CommitSummary, ProjectAvailability, ProjectData, ProjectId, ProjectMetadata};
+use gix::{ObjectId, revision::walk::Sorting, traverse::commit::simple::CommitTimeOrder};
+
+use super::{
+    CommitGraphEdge, CommitGraphMarker, CommitSummary, ProjectAvailability, ProjectData, ProjectId,
+    ProjectMetadata,
+};
+
+const HISTORY_LIMIT: usize = 100;
+
+#[derive(Debug)]
+struct BranchTip {
+    name: String,
+    oid: ObjectId,
+}
+
+#[derive(Default)]
+struct GraphColorPool(usize);
+
+impl GraphColorPool {
+    fn next(&mut self) -> usize {
+        self.0 += 1;
+        self.0
+    }
+}
+
+/// Applies the project history lane algorithm to commits that are already in display order.
+///
+/// Existing graph fields are replaced. Repository I/O and presentation are deliberately kept
+/// outside this function so topology can be tested independently.
+pub fn build_commit_graph(commits: &mut [CommitSummary]) {
+    let mut previous_outputs: Vec<CommitGraphEdge> = Vec::new();
+    let mut colors = GraphColorPool::default();
+
+    for commit in commits {
+        let mut marker = CommitGraphMarker::default();
+        let mut inputs = Vec::new();
+
+        if !previous_outputs.is_empty() {
+            let mut reached = false;
+            let mut occupied = 0;
+            let mut seen_destinations = HashSet::new();
+
+            for edge in previous_outputs
+                .iter()
+                .filter(|edge| seen_destinations.insert(edge.to_lane))
+            {
+                if edge.waiting_commit_id == commit.object_id {
+                    if !reached {
+                        reached = true;
+                        marker.lane = inputs.len();
+                        marker.color = edge.color;
+                        occupied += 1;
+                    }
+                    inputs.push(CommitGraphEdge {
+                        waiting_commit_id: commit.parent_ids.first().cloned().unwrap_or_default(),
+                        from_lane: edge.to_lane,
+                        to_lane: marker.lane,
+                        color: edge.color,
+                        tip: true,
+                    });
+                } else {
+                    inputs.push(CommitGraphEdge {
+                        waiting_commit_id: edge.waiting_commit_id.clone(),
+                        from_lane: edge.to_lane,
+                        to_lane: occupied,
+                        color: edge.color,
+                        tip: false,
+                    });
+                    occupied += 1;
+                }
+            }
+
+            if !reached {
+                marker.lane = inputs.len();
+                marker.color = colors.next();
+            }
+        }
+
+        let mut outputs = inputs
+            .iter()
+            .filter(|edge| !edge.tip)
+            .map(|edge| CommitGraphEdge {
+                waiting_commit_id: edge.waiting_commit_id.clone(),
+                from_lane: edge.to_lane,
+                to_lane: edge.to_lane,
+                color: edge.color,
+                tip: false,
+            })
+            .collect::<Vec<_>>();
+
+        let waiting_lanes: HashMap<&str, &CommitGraphEdge> = inputs
+            .iter()
+            .map(|edge| (edge.waiting_commit_id.as_str(), edge))
+            .collect();
+
+        for (parent_index, parent_id) in commit.parent_ids.iter().enumerate() {
+            if parent_index == 0 {
+                outputs.push(CommitGraphEdge {
+                    waiting_commit_id: parent_id.clone(),
+                    from_lane: marker.lane,
+                    to_lane: marker.lane,
+                    color: marker.color,
+                    tip: true,
+                });
+            } else if let Some(edge) = waiting_lanes.get(parent_id.as_str()) {
+                outputs.push(CommitGraphEdge {
+                    waiting_commit_id: parent_id.clone(),
+                    from_lane: marker.lane,
+                    to_lane: edge.to_lane,
+                    color: edge.color,
+                    tip: true,
+                });
+            } else {
+                outputs.push(CommitGraphEdge {
+                    waiting_commit_id: parent_id.clone(),
+                    from_lane: marker.lane,
+                    to_lane: outputs.len(),
+                    color: colors.next(),
+                    tip: true,
+                });
+            }
+        }
+
+        outputs.sort_by_key(|edge| edge.to_lane);
+        commit.commit_lane = marker;
+        commit.input_edges = inputs;
+        commit.output_edges = outputs.clone();
+        previous_outputs = outputs;
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct RepositoryError {
@@ -110,24 +243,67 @@ impl RepositoryLoader for GixRepositoryLoader {
         if let ProjectAvailability::Unavailable { message } = &metadata.availability {
             return Err(RepositoryError::new(message.clone()));
         }
-        let repository = gix::discover(&metadata.repository_path)
+        let mut repository = gix::discover(&metadata.repository_path)
             .map_err(|error| RepositoryError::new(format!("Could not open repository: {error}")))?;
-        let head = match repository.head_id() {
-            Ok(head) => head.detach(),
-            Err(_) => {
-                return Ok(ProjectData {
-                    project_id: metadata.id.clone(),
-                    head: None,
-                    commits: Vec::new(),
-                });
-            }
-        };
+        repository.object_cache_size(16 * 1024 * 1024);
+        let head = repository.head_id().ok().map(|id| id.detach());
+        let head_branch = repository
+            .head()
+            .ok()
+            .and_then(|head| head.referent_name().map(|name| name.shorten().to_string()));
+
+        let references = repository.references().map_err(|error| {
+            RepositoryError::new(format!("Could not read repository references: {error}"))
+        })?;
+        let local = references.local_branches().map_err(|error| {
+            RepositoryError::new(format!("Could not read local branches: {error}"))
+        })?;
+        let references = repository.references().map_err(|error| {
+            RepositoryError::new(format!("Could not read repository references: {error}"))
+        })?;
+        let remote = references.remote_branches().map_err(|error| {
+            RepositoryError::new(format!("Could not read remote branches: {error}"))
+        })?;
+        let branch_tips = local
+            .chain(remote)
+            .filter_map(|reference| {
+                let mut reference = reference.ok()?;
+                let name = reference.name().shorten().to_string();
+                let oid = reference.peel_to_commit().ok()?.id;
+                Some(BranchTip { name, oid })
+            })
+            .collect::<Vec<_>>();
+
+        if branch_tips.is_empty() {
+            return Ok(ProjectData {
+                project_id: metadata.id.clone(),
+                head: head.map(|id| id.to_string()),
+                commits: Vec::new(),
+            });
+        }
+
+        let mut branch_map: HashMap<ObjectId, Vec<String>> = HashMap::new();
+        for branch in &branch_tips {
+            branch_map
+                .entry(branch.oid)
+                .or_default()
+                .push(branch.name.clone());
+        }
+        if let (Some(head), Some(head_branch)) = (head, head_branch.as_deref())
+            && let Some(branches) = branch_map.get_mut(&head)
+            && let Some(index) = branches.iter().position(|branch| branch == head_branch)
+        {
+            let head_branch = branches.remove(index);
+            branches.insert(0, head_branch);
+        }
+
         let walk = repository
-            .rev_walk([head])
+            .rev_walk(branch_tips.iter().map(|branch| branch.oid))
+            .sorting(Sorting::ByCommitTime(CommitTimeOrder::NewestFirst))
             .all()
             .map_err(|error| RepositoryError::new(format!("Could not read history: {error}")))?;
         let mut commits = Vec::new();
-        for info in walk {
+        for info in walk.take(HISTORY_LIMIT) {
             let info = info.map_err(|error| {
                 RepositoryError::new(format!("Could not traverse history: {error}"))
             })?;
@@ -140,27 +316,41 @@ impl RepositoryLoader for GixRepositoryLoader {
             let time = author.time().map_err(|error| {
                 RepositoryError::new(format!("Could not read a commit date: {error}"))
             })?;
-            let summary = commit
-                .message()
-                .map_err(|error| {
-                    RepositoryError::new(format!("Could not read a commit message: {error}"))
-                })?
-                .summary()
-                .to_string();
+            let commit_time = commit.time().map_err(|error| {
+                RepositoryError::new(format!("Could not read a commit time: {error}"))
+            })?;
+            let message = commit.message().map_err(|error| {
+                RepositoryError::new(format!("Could not read a commit message: {error}"))
+            })?;
+            let summary = message.summary().to_string();
+            let message_body = message
+                .body()
+                .map(|body| body.to_string())
+                .unwrap_or_default();
             let parent_ids = commit.parent_ids().map(|id| id.to_string()).collect();
+            let object_id = info.id.to_string();
             commits.push(CommitSummary {
-                object_id: info.id.to_string(),
+                object_id,
                 parent_ids,
                 summary,
+                message_body,
                 author_name: author.name.to_string(),
                 author_email: author.email.to_string(),
                 authored_at_seconds: time.seconds,
                 authored_at_offset_minutes: time.offset,
+                commit_time_seconds: commit_time.seconds,
+                commit_time_offset_minutes: commit_time.offset,
+                commit_lane: CommitGraphMarker::default(),
+                input_edges: Vec::new(),
+                output_edges: Vec::new(),
+                is_head: head.is_some_and(|head| head == info.id),
+                branches: branch_map.get(&info.id).cloned().unwrap_or_default(),
             });
         }
+        build_commit_graph(&mut commits);
         Ok(ProjectData {
             project_id: metadata.id.clone(),
-            head: Some(head.to_string()),
+            head: head.map(|id| id.to_string()),
             commits,
         })
     }

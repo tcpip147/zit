@@ -150,6 +150,7 @@ description: "Dependency-ordered implementation tasks for the reusable DataGrid 
 - [X] T035 Keep adjacent widths stable as a pair, enforce a 40-pixel minimum, and add resize regression coverage in `crates/widget/src/data-grid.rs`
 - [X] T036 Store resized columns as proportional weights so their ratios survive grid and window size changes in `crates/widget/src/data-grid.rs`
 - [X] T037 Align body-cell flex sizing with header cells by moving padding and clipping into an inner content container in `crates/widget/src/data-grid.rs`
+- [X] T038 Set the default DataGrid header and body-row heights to 24 pixels while preserving height configuration APIs in `crates/widget/src/data-grid.rs`
 
 ---
 

@@ -150,8 +150,8 @@ impl DataGrid {
             columns,
             row_count,
             render_row: Rc::new(render_row),
-            row_height: px(34.),
-            header_height: px(30.),
+            row_height: px(24.),
+            header_height: px(24.),
             theme: DataGridTheme::default(),
             label: "Data grid".into(),
             scroll: UniformListScrollHandle::new(),
@@ -384,9 +384,10 @@ impl DataGrid {
         row_height: Pixels,
         theme: &DataGridTheme,
         index: usize,
-        mut row: DataGridRow,
+        row: DataGridRow,
     ) -> AnyElement {
-        let label = row.accessible_label.take();
+        let label = row.accessible_label;
+        let mut cells = row.cells.into_iter();
         div()
             .id(("data-grid-row", index))
             .role(Role::Row)
@@ -398,11 +399,7 @@ impl DataGrid {
             .flex()
             .bg(theme.row_background.gpui())
             .children(columns.iter().enumerate().map(|(i, c)| {
-                let cell = if i < row.cells.len() {
-                    row.cells.remove(0)
-                } else {
-                    DataGridCell::text("")
-                };
+                let cell = cells.next().unwrap_or_else(|| DataGridCell::text(""));
                 Self::sized_cell(
                     c,
                     cell.content,
@@ -648,6 +645,49 @@ impl DataGrid {
     }
 }
 
+impl Render for DataGrid {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let columns = self.columns.clone();
+        let theme = self.theme.clone();
+        let height = self.row_height;
+        let renderer = self.render_row.clone();
+        div()
+            .id(("data-grid", cx.entity_id()))
+            .role(Role::Grid)
+            .aria_label(self.label.clone())
+            .aria_row_count(self.row_count + 1)
+            .aria_column_count(self.columns.len())
+            .relative()
+            .size_full()
+            .min_h_0()
+            .overflow_hidden()
+            .flex()
+            .flex_col()
+            .child(self.header(cx))
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .bg(self.theme.row_background.gpui())
+                    .on_scroll_wheel(cx.listener(Self::wheel))
+                    .child(
+                        uniform_list("data-grid-rows", self.row_count, move |range, _, _| {
+                            range
+                                .map(|i| Self::row(&columns, height, &theme, i, renderer(i)))
+                                .collect()
+                        })
+                        .size_full()
+                        .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::FitList)
+                        .track_scroll(&self.scroll),
+                    )
+                    .child(self.scrollbar(cx)),
+            )
+            .child(self.capture(cx))
+    }
+}
+
 #[cfg(test)]
 mod data_grid_tests {
     use super::*;
@@ -676,47 +716,5 @@ mod data_grid_tests {
         assert_eq!(left, DataGridColumnWidth::Fraction(140.));
         assert_eq!(right, DataGridColumnWidth::Fraction(60.));
         assert_eq!(140_f32 / 60., 280_f32 / 120.);
-    }
-}
-
-impl Render for DataGrid {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let columns = self.columns.clone();
-        let theme = self.theme.clone();
-        let height = self.row_height;
-        let renderer = self.render_row.clone();
-        div()
-            .id(("data-grid", cx.entity_id()))
-            .role(Role::Grid)
-            .aria_label(self.label.clone())
-            .aria_row_count(self.row_count + 1)
-            .aria_column_count(self.columns.len())
-            .relative()
-            .size_full()
-            .min_h_0()
-            .overflow_hidden()
-            .flex()
-            .flex_col()
-            .child(self.header(cx))
-            .child(
-                div()
-                    .relative()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_hidden()
-                    .on_scroll_wheel(cx.listener(Self::wheel))
-                    .child(
-                        uniform_list("data-grid-rows", self.row_count, move |range, _, _| {
-                            range
-                                .map(|i| Self::row(&columns, height, &theme, i, renderer(i)))
-                                .collect()
-                        })
-                        .size_full()
-                        .with_horizontal_sizing_behavior(ListHorizontalSizingBehavior::FitList)
-                        .track_scroll(&self.scroll),
-                    )
-                    .child(self.scrollbar(cx)),
-            )
-            .child(self.capture(cx))
     }
 }

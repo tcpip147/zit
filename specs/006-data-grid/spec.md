@@ -114,6 +114,7 @@ As a Zit maintainer, I can replace the project page's private history-table impl
 - **FR-021a**: A user-resized column layout MUST be stored as proportional weights so its column ratios remain stable when the grid or window width changes.
 - **FR-022**: Column resize dragging MUST continue and terminate when the pointer moves or is released outside the grid.
 - **FR-023**: Sorting, filtering, column reordering, row selection, cell editing, and horizontal scrolling MUST remain outside this feature's scope.
+- **FR-024**: The default header and uniform body-row heights MUST both be 24 pixels while remaining configurable.
 
 ### Key Entities
 
