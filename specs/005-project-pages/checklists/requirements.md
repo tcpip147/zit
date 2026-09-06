@@ -31,5 +31,8 @@
 
 ## Notes
 
-- Validation passed on the first review iteration. No clarification markers remain.
+- Revalidated on 2026-09-06 after synchronizing the specification with the current project-page source.
+- Validation passed on the first synchronization review. No clarification markers remain.
 - FR-020 records the constitution's Git-backend constraint as a product boundary without prescribing page implementation details.
+- User Story 4 and FR-021 through FR-027 cover the implemented project workspace, project-local navigation state, history presentation, toolbar action requests, and accessibility semantics.
+- Development-only project seeding and machine-specific sample paths are intentionally excluded because they are test scaffolding rather than user-facing product requirements.

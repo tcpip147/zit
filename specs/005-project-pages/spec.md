@@ -4,9 +4,9 @@
 
 **Created**: 2026-09-06
 
-**Status**: Draft
+**Status**: Implemented and synchronized with the current source
 
-**Input**: User description: "Add project pages. Project metadata is managed globally, each page has a one-to-one relationship with a tab, all open projects appear as tabs at startup, and heavyweight data such as history is loaded lazily when its tab becomes active. A project means a Git repository."
+**Input**: User description: "Add project pages. Project metadata is managed globally, each page has a one-to-one relationship with a tab, all open projects appear as tabs at startup, and heavyweight data such as history is loaded lazily when its tab becomes active. A project means a Git repository." This specification was subsequently synchronized with the implemented project workspace, navigation, toolbar, and history presentation.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -57,6 +57,24 @@ As a user, I receive a clear, recoverable project-specific status when a reposit
 2. **Given** heavyweight data loading fails for the active project, **When** the failure is reported, **Then** that page displays a meaningful error and an action to retry.
 3. **Given** a load previously failed and the underlying problem is resolved, **When** the user retries, **Then** the page can reach the ready state without opening a duplicate tab.
 
+---
+
+### User Story 4 - Navigate the Project Workspace (Priority: P2)
+
+As a user, I can move between the main areas of each project and access common repository actions from a consistent project workspace.
+
+**Why this priority**: A stable workspace makes project data understandable and establishes clear entry points for present and future repository workflows without mixing state between open projects.
+
+**Independent Test**: Open two project pages, choose different sections on each page, switch between their tabs, and verify that each page retains its own section while the toolbar and navigation remain available.
+
+**Acceptance Scenarios**:
+
+1. **Given** a project page has just been created, **When** it is first displayed, **Then** File Status is the selected section and History and Search are also available from the project navigation.
+2. **Given** the user selects a section on one project, **When** the user switches to another project and back, **Then** the original project retains its selected section independently of the other project.
+3. **Given** repository history has loaded, **When** the user views History, **Then** commits are presented with graph, summary, author, date, and abbreviated hash information.
+4. **Given** the history contains more entries than fit in the visible area, **When** the user scrolls or drags the history scroll control, **Then** additional commits become reachable without replacing the project page.
+5. **Given** a project page is visible, **When** the user reviews its toolbar, **Then** entry points are available for commit, synchronization, branch, merge, stash, discard, tag, Git Flow, terminal, file explorer, and project settings workflows.
+
 ### Edge Cases
 
 - A repository is moved, deleted, becomes unreadable, or ceases to be a valid Git repository between sessions.
@@ -66,6 +84,8 @@ As a user, I receive a clear, recoverable project-specific status when a reposit
 - The active project is removed from the global project collection while its page is visible.
 - A late completion or failure arrives from a load initiated for a page that has since been closed.
 - Multiple activation events occur while a project's first load is already in progress.
+- A project has enough commits to require scrolling through a long history.
+- Two project pages have different selected workspace sections when the user switches between them.
 
 ## Requirements *(mandatory)*
 
@@ -91,6 +111,13 @@ As a user, I receive a clear, recoverable project-specific status when a reposit
 - **FR-018**: Changes to globally managed project metadata MUST be reflected consistently in the corresponding tab and page without creating a duplicate page.
 - **FR-019**: The project page MUST distinguish at least four heavyweight-data states: not loaded, loading, ready, and failed.
 - **FR-020**: Git repository inspection and history retrieval MUST comply with the project's approved Git backend foundation; any fallback outside that foundation requires a separately approved architectural exception.
+- **FR-021**: Every project page MUST provide File Status, History, and Search sections, with File Status selected when the page is created.
+- **FR-022**: Each retained project page MUST preserve its selected section independently while the user switches between project tabs.
+- **FR-023**: The History section MUST present each available commit's graph relationship, summary, author, authored date, and abbreviated identifier in a consistent tabular view.
+- **FR-024**: A history that exceeds the visible area MUST remain navigable through wheel scrolling and a draggable scroll control, while rendering only the currently needed portion of the list so the page remains responsive.
+- **FR-025**: Every project page MUST expose clearly labeled toolbar entry points for Commit, Pull, Push, Fetch, Branch, Merge, Stash, Discard, Tag, Git Flow, Terminal, Explorer, and Settings.
+- **FR-026**: Selecting a toolbar entry point MUST produce a project-page action associated with the selected command; executing the underlying repository or operating-system operation is outside this feature's scope.
+- **FR-027**: Section controls, retry controls, and project tabs MUST expose their purpose and selected or status state to assistive technologies where applicable.
 
 ### Key Entities
 
@@ -98,6 +125,9 @@ As a user, I receive a clear, recoverable project-specific status when a reposit
 - **Project Page**: The retained user-facing workspace for one project. It has exactly one associated project and exactly one associated tab, and owns the presentation of that project's load state and data.
 - **Project Tab**: The navigation representation of one open project. Selecting it activates its associated project page; closing it removes that open-project entry.
 - **Project Data**: Heavyweight, lazily acquired repository information such as commit history. It belongs to one project and has a not-loaded, loading, ready, or failed state.
+- **Commit Summary**: The history representation of one commit, including its full identifier, parent identifiers, summary, author identity, and authored time; the project page may present a concise subset of these values.
+- **Project Workspace Section**: The project-local navigation selection among File Status, History, and Search. Each retained project page owns its own selection.
+- **Project Toolbar Action**: A request originating from one of the common repository-workflow entry points on a project page.
 - **Open Project Session**: The persisted ordered set of projects that should be restored as tabs, together with the identity of the active project.
 
 ## Success Criteria *(mandatory)*
@@ -111,6 +141,9 @@ As a user, I receive a clear, recoverable project-specific status when a reposit
 - **SC-005**: In a startup set containing both valid and unavailable repositories, 100% of valid projects remain independently accessible despite failures in other projects.
 - **SC-006**: For every open project, automated acceptance checks observe exactly one tab and one retained page throughout activation and switching.
 - **SC-007**: In usability validation, at least 90% of participants can identify whether an active project is loading, ready, or failed and can retry a failed load without assistance.
+- **SC-008**: In automated interaction checks, switching between two projects with different selected sections preserves the correct section for both projects in 100% of tab switches.
+- **SC-009**: Users can reach any commit in a 10,000-entry history through the visible history controls while tab selection and workspace navigation continue to respond within 100 milliseconds.
+- **SC-010**: In usability validation, at least 90% of participants can locate the History section and identify the toolbar entry point for a named common repository action without assistance.
 
 ## Assumptions
 
@@ -119,5 +152,7 @@ As a user, I receive a clear, recoverable project-specific status when a reposit
 - The first restored project becomes active when the previously active project cannot be restored; activating it may therefore start exactly one lazy load during startup.
 - Heavyweight data is cached for the current application session. Detecting and refreshing external repository changes is outside this feature's scope.
 - Opening new repositories through a picker or recent-project list is outside this feature's scope; this feature defines the model, restoration, page lifecycle, and tab behavior once projects are open.
+- File Status and Search provide stable project-navigation destinations in this feature; populating those destinations with working-tree or search results is outside its scope.
+- Toolbar controls establish project-scoped action requests and their labels. The commit, synchronization, branch-management, terminal, explorer, and settings workflows themselves are outside this feature's scope.
 - A closed project's in-flight work may finish internally, but its result is discarded and cannot recreate the project or update another page.
 - Authentication, remote hosting services, network fetching, and repository mutation are outside this feature's scope.
