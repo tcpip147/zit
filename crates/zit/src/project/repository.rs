@@ -147,8 +147,10 @@ impl RepositoryLoader for GixRepositoryLoader {
                 })?
                 .summary()
                 .to_string();
+            let parent_ids = commit.parent_ids().map(|id| id.to_string()).collect();
             commits.push(CommitSummary {
                 object_id: info.id.to_string(),
+                parent_ids,
                 summary,
                 author_name: author.name.to_string(),
                 author_email: author.email.to_string(),

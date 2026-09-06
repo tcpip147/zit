@@ -1,13 +1,13 @@
 {
   "tab_bar": {
-    "background": "#202124",
-    "border": "#55585E",
+    "background": "#F8FAFC",
+    "border": "#CBD5E1",
     "tab_background": "#00000000",
-    "tab_hover_background": "#4A4D52",
-    "tab_active_background": "#3B3E43",
-    "text": "#DADCE0",
-    "icon": "#DADCE0",
-    "close_hover_background": "#62666D"
+    "tab_hover_background": "#E2E8F0",
+    "tab_active_background": "#FFFFFF",
+    "text": "#0F172A",
+    "icon": "#475569",
+    "close_hover_background": "#CBD5E1"
   },
   "text_input": {
     "background": "#FFFFFFFF",

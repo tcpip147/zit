@@ -57,14 +57,14 @@ pub struct TabBarTheme {
 impl Default for TabBarTheme {
     fn default() -> Self {
         Self {
-            background: ThemeColor::rgb(0x202124),
-            border: ThemeColor::rgb(0x55585e),
+            background: ThemeColor::rgb(0xf8fafc),
+            border: ThemeColor::rgb(0xcbd5e1),
             tab_background: ThemeColor::rgba(0x00000000),
-            tab_hover_background: ThemeColor::rgb(0x4a4d52),
-            tab_active_background: ThemeColor::rgb(0x3b3e43),
-            text: ThemeColor::rgb(0xdadce0),
-            icon: ThemeColor::rgb(0xdadce0),
-            close_hover_background: ThemeColor::rgb(0x62666d),
+            tab_hover_background: ThemeColor::rgb(0xe2e8f0),
+            tab_active_background: ThemeColor::rgb(0xffffff),
+            text: ThemeColor::rgb(0x0f172a),
+            icon: ThemeColor::rgb(0x475569),
+            close_hover_background: ThemeColor::rgb(0xcbd5e1),
         }
     }
 }

@@ -43,6 +43,7 @@ pub struct ProjectMetadata {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommitSummary {
     pub object_id: String,
+    pub parent_ids: Vec<String>,
     pub summary: String,
     pub author_name: String,
     pub author_email: String,

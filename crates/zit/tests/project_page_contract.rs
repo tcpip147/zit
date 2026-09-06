@@ -9,7 +9,7 @@ use std::{
 use gpui::{AppContext, TestAppContext};
 use zit::project::{
     ProjectAvailability, ProjectData, ProjectId, ProjectLoadState, ProjectMetadata, ProjectPage,
-    RepositoryError, RepositoryLoader,
+    ProjectSection, RepositoryError, RepositoryLoader,
 };
 
 struct CountingLoader {
@@ -83,6 +83,31 @@ fn loads_only_after_activation_and_reuses_ready_data(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn selecting_history_starts_lazy_load(cx: &mut TestAppContext) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let page = cx.new(|_| {
+        ProjectPage::new(
+            metadata("history-selection"),
+            Arc::new(CountingLoader {
+                calls: calls.clone(),
+                fail: false,
+            }),
+        )
+    });
+
+    page.update(cx, |page, cx| {
+        page.select_section(ProjectSection::History, cx)
+    });
+    cx.run_until_parked();
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(matches!(
+        page.read_with(cx, |page, _| page.load_state().clone()),
+        ProjectLoadState::Ready(_)
+    ));
+}
+
+#[gpui::test]
 fn failed_load_can_retry_without_parallel_duplicates(cx: &mut TestAppContext) {
     let calls = Arc::new(AtomicUsize::new(0));
     let page = cx.new(|_| {
@@ -139,4 +164,39 @@ fn close_invalidation_rejects_pending_generation(cx: &mut TestAppContext) {
         page.read_with(cx, |page, _| page.load_state().clone()),
         ProjectLoadState::Ready(_)
     ));
+}
+
+#[gpui::test]
+fn project_pages_keep_independent_sidebar_selection(cx: &mut TestAppContext) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let first = cx.new(|_| {
+        ProjectPage::new(
+            metadata("first"),
+            Arc::new(CountingLoader {
+                calls: calls.clone(),
+                fail: false,
+            }),
+        )
+    });
+    let second = cx.new(|_| {
+        ProjectPage::new(
+            metadata("second"),
+            Arc::new(CountingLoader { calls, fail: false }),
+        )
+    });
+    assert_eq!(
+        first.read_with(cx, |page, _| page.selected_section()),
+        ProjectSection::FileStatus
+    );
+    first.update(cx, |page, cx| {
+        page.select_section(ProjectSection::History, cx)
+    });
+    assert_eq!(
+        first.read_with(cx, |page, _| page.selected_section()),
+        ProjectSection::History
+    );
+    assert_eq!(
+        second.read_with(cx, |page, _| page.selected_section()),
+        ProjectSection::FileStatus
+    );
 }

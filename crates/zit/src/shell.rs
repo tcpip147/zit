@@ -23,7 +23,6 @@ pub struct ZitShell {
     profile: PlatformProfile,
     menus: MenuState,
     about_open: bool,
-    dark: bool,
     active: bool,
     focus_handle: FocusHandle,
     tab_bar: Entity<TabBar>,
@@ -43,7 +42,6 @@ impl ZitShell {
         window.focus(&focus_handle, cx);
         let subscriptions = vec![
             cx.observe_window_bounds(window, |_, _, cx| cx.notify()),
-            cx.observe_window_appearance(window, |_, _, cx| cx.notify()),
             cx.observe_window_activation(window, |this, window, cx| {
                 if !window.is_window_active() {
                     this.menus.close();
@@ -90,7 +88,6 @@ impl ZitShell {
             profile: PlatformProfile::current(),
             menus: MenuState::default(),
             about_open: false,
-            dark: true,
             active: true,
             focus_handle,
             tab_bar,
@@ -216,8 +213,8 @@ impl ZitShell {
 
     fn heading(&self, id: MenuId, label: &'static str, cx: &mut Context<Self>) -> AnyElement {
         let selected = self.menus.open == Some(id);
-        let hover_background = if self.dark { 0x4a4d52 } else { 0xdfe3e8 };
-        let selected_background = if self.dark { 0x55585e } else { 0xd4d9df };
+        let hover_background = 0xdfe3e8;
+        let selected_background = 0xd4d9df;
         div()
             .id(match id {
                 MenuId::File => "menu-file",
@@ -249,9 +246,9 @@ impl ZitShell {
     }
 
     fn popup(&self, id: MenuId, cx: &mut Context<Self>) -> AnyElement {
-        let popup_background = if self.dark { 0x3b3e43 } else { 0xf7f8fa };
-        let hover_background = if self.dark { 0x55585e } else { 0xe1e5ea };
-        let border_color = if self.dark { 0x686c72 } else { 0xc7ccd2 };
+        let popup_background = 0xf7f8fa;
+        let hover_background = 0xe1e5ea;
+        let border_color = 0xc7ccd2;
         div()
             .id(match id {
                 MenuId::File => "file-popup",
@@ -315,7 +312,7 @@ impl ZitShell {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let profile = self.profile;
-        let icon_color = if self.dark { 0xf1f3f4 } else { 0x202124 };
+        let icon_color = 0x202124;
         div()
             .id(id)
             .role(Role::Button)
@@ -339,7 +336,7 @@ impl ZitShell {
             .when(enabled, |style| {
                 style
                     .cursor_pointer()
-                    .hover(move |style| style.bg(rgb(if close { 0xe81123 } else { 0x3c4043 })))
+                    .hover(move |style| style.bg(rgb(if close { 0xe81123 } else { 0xdfe3e8 })))
                     .active(|style| style.opacity(0.8))
             })
             .when(profile != PlatformProfile::Windows, |element| {
@@ -459,9 +456,9 @@ impl ZitShell {
                 div()
                     .w(px(320.0))
                     .p_6()
-                    .bg(rgb(0x292a2d))
+                    .bg(rgb(0xffffff))
                     .border_1()
-                    .border_color(rgb(0x5f6368))
+                    .border_color(rgb(0xc7ccd2))
                     .rounded_md()
                     .flex()
                     .flex_col()
@@ -479,8 +476,8 @@ impl ZitShell {
                             .py_1()
                             .self_end()
                             .cursor_pointer()
-                            .bg(rgb(0x3c4043))
-                            .hover(|style| style.bg(rgb(0x5f6368)))
+                            .bg(rgb(0xe2e8f0))
+                            .hover(|style| style.bg(rgb(0xcbd5e1)))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.about_open = false;
                                 cx.notify();
@@ -495,14 +492,10 @@ impl ZitShell {
 impl Render for ZitShell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let snapshot = WindowSnapshot::read(window);
-        self.dark = matches!(
-            snapshot.appearance,
-            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
-        );
         self.active = snapshot.active;
-        let content_background = if self.dark { 0x202124 } else { 0xf5f5f5 };
-        let titlebar_background = if self.dark { 0x383b40 } else { 0xf1f3f5 };
-        let foreground = if self.dark { 0xf1f3f4 } else { 0x202124 };
+        let content_background = 0xf5f5f5;
+        let titlebar_background = 0xf1f3f5;
+        let foreground = 0x202124;
         let controls = self.controls(snapshot, cx);
         let left_controls = controls_on_left(self.profile);
         let (left, right) = if left_controls {
@@ -527,6 +520,7 @@ impl Render for ZitShell {
             .on_action(cx.listener(Self::menu_escape))
             .relative()
             .size_full()
+            .text_xs()
             .flex()
             .flex_col()
             .bg(rgb(content_background))

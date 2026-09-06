@@ -178,6 +178,59 @@ impl ProjectStore {
         true
     }
 
+    /// Replaces the first seeded project with a real repository while keeping
+    /// the remaining test tabs intact.
+    pub fn set_first_test_project(
+        &mut self,
+        repository_path: PathBuf,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(first) = self.projects.first() else {
+            return false;
+        };
+        let already_configured = std::fs::canonicalize(&first.repository_path).ok()
+            == std::fs::canonicalize(&repository_path).ok();
+        let is_seeded_project_one = first.repository_path.file_name().is_some_and(|name| {
+            name.eq_ignore_ascii_case("project-1")
+                && first
+                    .repository_path
+                    .parent()
+                    .and_then(|parent| parent.file_name())
+                    .is_some_and(|parent| parent.eq_ignore_ascii_case("test-projects"))
+        });
+        if first.display_name != "Test Project 1"
+            && first.display_name != "Project 1"
+            && !already_configured
+            && !is_seeded_project_one
+        {
+            return false;
+        }
+
+        let old_id = first.id.clone();
+        let mut metadata = self.loader.inspect(&repository_path, Some("Project 1"));
+        metadata.display_name = "Project 1".into();
+        let new_id = metadata.id.clone();
+        let page = cx.new(|_| ProjectPage::new(metadata.clone(), self.loader.clone()));
+
+        self.projects[0] = metadata;
+        self.pages.remove(&old_id);
+        self.pages.insert(new_id.clone(), page);
+        if self.active.as_ref() == Some(&old_id) {
+            self.active = Some(new_id);
+        }
+        self.persist();
+        cx.emit(ProjectStoreEvent::Restored {
+            project_ids: self
+                .projects
+                .iter()
+                .map(|project| project.id.clone())
+                .collect(),
+            active: self.active.clone(),
+        });
+        cx.notify();
+        true
+    }
+
     pub fn activate(&mut self, id: &ProjectId, cx: &mut Context<Self>) -> bool {
         let Some(page) = self.pages.get(id).cloned() else {
             return false;

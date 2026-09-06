@@ -1474,6 +1474,7 @@ impl Render for TextEditor {
 
         div()
             .debug_selector(|| "TEXT_INPUT".into())
+            .text_xs()
             .key_context("TextEditor")
             .relative()
             .flex()

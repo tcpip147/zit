@@ -1125,6 +1125,7 @@ impl Render for TextInput {
         };
         div()
             .debug_selector(|| "TEXT_INPUT".into())
+            .text_xs()
             .key_context("TextInput")
             .when(self.enabled, |element| {
                 element.track_focus(&self.focus_handle(cx))

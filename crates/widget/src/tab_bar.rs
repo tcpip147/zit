@@ -267,6 +267,7 @@ impl Render for TabBar {
         let count = self.tabs.len();
         div()
             .size_full()
+            .text_xs()
             .flex()
             .flex_col()
             .child(
