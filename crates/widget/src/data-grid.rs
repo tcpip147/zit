@@ -540,7 +540,7 @@ impl DataGrid {
     }
     fn geometry(&self) -> (f32, f32, f32, bool) {
         let s = self.scroll.0.borrow();
-        let viewport = s.base_handle.bounds().size.height.as_f32().max(1.);
+        let viewport = (s.base_handle.bounds().size.height.as_f32() - 4.).max(1.);
         let max = s.base_handle.max_offset().y.as_f32().max(0.);
         let thumb = if max > 0. {
             (viewport * viewport / (viewport + max))
@@ -569,6 +569,7 @@ impl DataGrid {
             .rounded(px(3.))
             .bg(self.theme.scrollbar_track.gpui())
             .on_hover(cx.listener(Self::hover_scrollbar))
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::jump_to_track))
             .when(!self.scrollbar_visible, |d| {
                 d.opacity(0.).hover(|s| s.opacity(1.))
             })
@@ -638,6 +639,21 @@ impl DataGrid {
         self.show(cx);
         cx.stop_propagation();
     }
+    fn jump_to_track(&mut self, e: &MouseDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let (viewport, thumb, _, scrollable) = self.geometry();
+        if !scrollable { return; }
+        let state = self.scroll.0.borrow();
+        let bounds = state.base_handle.bounds();
+        let max = state.base_handle.max_offset().y.as_f32().max(0.);
+        let position = (e.position.y.as_f32() - bounds.origin.y.as_f32() - 2. - thumb / 2.)
+            .clamp(0., (viewport - thumb).max(0.));
+        let x = state.base_handle.offset().x;
+        state.base_handle.set_offset(point(x, px(-(position / (viewport - thumb).max(1.)) * max)));
+        drop(state);
+        self.show_temporarily(cx);
+        cx.notify();
+    }
+
     fn drag(&mut self, e: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
         let Some((start, start_offset)) = self.drag else {
             return;

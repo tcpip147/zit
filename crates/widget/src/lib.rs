@@ -8,6 +8,7 @@ mod data_grid;
 mod tab_bar;
 mod text_editor;
 mod text_input;
+mod scroll_container;
 mod theme;
 
 pub use data_grid::{
@@ -34,3 +35,4 @@ pub use text_input::{
     SelectRight, SelectStart, SelectWordLeft, SelectWordRight, Start, TextInput, TextInputChange,
     Undo, WordLeft, WordRight, init,
 };
+pub use scroll_container::ScrollContainer;

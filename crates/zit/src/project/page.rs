@@ -6,7 +6,7 @@ use gpui::{
     StatefulInteractiveElement, Task, Window, canvas, deferred, div, point, prelude::*, px, quad,
     rgb, size, svg,
 };
-use widget::{DataGrid, DataGridCell, DataGridColumn, DataGridRow};
+use widget::{DataGrid, DataGridCell, DataGridColumn, DataGridRow, ScrollContainer};
 
 use super::{ProjectId, ProjectLoadState, ProjectMetadata, RepositoryLoader, build_commit_graph};
 
@@ -72,6 +72,8 @@ pub struct ProjectPage {
     selected_commit_file_diff: Option<Result<String, String>>,
     file_load_generation: u64,
     file_load_task: Option<Task<()>>,
+    commit_scroll: Option<Entity<ScrollContainer>>,
+    files_scroll: Option<Entity<ScrollContainer>>,
 }
 
 impl ProjectPage {
@@ -93,6 +95,8 @@ impl ProjectPage {
             selected_commit_file_diff: None,
             file_load_generation: 0,
             file_load_task: None,
+            commit_scroll: None,
+            files_scroll: None,
         }
     }
 
@@ -552,7 +556,7 @@ impl ProjectPage {
             },
         };
         div()
-            .size_full()
+            .w_full()
             .min_h_0()
             .p_2()
             .flex()
@@ -581,7 +585,17 @@ impl ProjectPage {
         div().size_full().p_3().overflow_hidden().child(div().text_color(rgb(0x334155)).child(path.clone())).child(div().mt_2().whitespace_normal().child(body)).into_any_element()
     }
 
-    fn state_content(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn history_scrolls(&mut self, cx: &mut Context<Self>) -> (Entity<ScrollContainer>, Entity<ScrollContainer>) {
+        let commit = self.commit_scroll.get_or_insert_with(|| cx.new(|_| ScrollContainer::new(div()))).clone();
+        let files = self.files_scroll.get_or_insert_with(|| cx.new(|_| ScrollContainer::new(div()))).clone();
+        let details = self.selected_commit_details();
+        let file_list = self.selected_commit_file_list(cx);
+        commit.update(cx, |scroll, cx| scroll.set_content(details, cx));
+        files.update(cx, |scroll, cx| scroll.set_content(file_list, cx));
+        (commit, files)
+    }
+
+    fn state_content(&mut self, cx: &mut Context<Self>) -> AnyElement {
         match &self.state {
             ProjectLoadState::NotLoaded => div()
                 .child("Select this project to load its history.")
@@ -598,7 +612,9 @@ impl ProjectPage {
                 .aria_label("Repository history is empty")
                 .child("This repository has no commits yet.")
                 .into_any_element(),
-            ProjectLoadState::Ready(_) => div()
+            ProjectLoadState::Ready(_) => {
+                let (commit_scroll, files_scroll) = self.history_scrolls(cx);
+                div()
                 .id("history-split-view")
                 .size_full()
                 .min_h_0()
@@ -654,7 +670,7 @@ impl ProjectPage {
                                         .flex_1()
                                         .min_h_0()
                                         .overflow_y_scroll()
-                                        .child(self.selected_commit_details()),
+                                        .child(commit_scroll),
                                 )
                                 .child(
                                     div()
@@ -664,7 +680,7 @@ impl ProjectPage {
                                         .overflow_hidden()
                                         .border_t_1()
                                         .border_color(rgb(0xcbd5e1))
-                                        .child(self.selected_commit_file_list(cx)),
+                                        .child(files_scroll),
                                 ),
                         )
                         .child(
@@ -676,7 +692,8 @@ impl ProjectPage {
                                 .child(self.selected_commit_file_diff()),
                         ),
                 )
-                .into_any_element(),
+                .into_any_element()
+            },
             ProjectLoadState::Failed { message, .. } => {
                 let label = format!("Retry loading {}", self.metadata.display_name);
                 let page = cx.entity();
@@ -1135,7 +1152,7 @@ impl ProjectPage {
             .into_any_element()
     }
 
-    fn selected_content(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn selected_content(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let body = match self.selected_section {
             ProjectSection::FileStatus => div()
                 .id("file-status-content")
