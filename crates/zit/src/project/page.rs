@@ -3,12 +3,12 @@ use std::{rc::Rc, sync::Arc};
 use gpui::{
     AccessibleAction, AnyElement, Bounds, Context, CursorStyle, Entity, EventEmitter,
     InteractiveElement, MouseButton, Path, PathBuilder, Pixels, Point, Render, Role,
-    StatefulInteractiveElement, Task, Window, canvas, div, point, prelude::*, px, quad, rgb, size,
-    svg,
+    StatefulInteractiveElement, Task, Window, canvas, deferred, div, point, prelude::*, px, quad,
+    rgb, size, svg,
 };
 use widget::{DataGrid, DataGridCell, DataGridColumn, DataGridRow};
 
-use super::{ProjectId, ProjectLoadState, ProjectMetadata, RepositoryLoader};
+use super::{ProjectId, ProjectLoadState, ProjectMetadata, RepositoryLoader, build_commit_graph};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectToolbarAction {
@@ -40,6 +40,13 @@ pub enum ProjectSection {
     Search,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum HistoryBranchFilter {
+    #[default]
+    All,
+    Current,
+}
+
 #[derive(Clone)]
 struct CachedGraphPath {
     path: Path<Pixels>,
@@ -56,6 +63,13 @@ pub struct ProjectPage {
     load_task: Option<Task<()>>,
     selected_section: ProjectSection,
     history_grid: Option<Entity<DataGrid>>,
+    history_branch_filter: HistoryBranchFilter,
+    include_remote_branches: bool,
+    branch_filter_open: bool,
+    selected_history_commit: Option<super::CommitSummary>,
+    selected_commit_files: Option<Result<Vec<String>, String>>,
+    file_load_generation: u64,
+    file_load_task: Option<Task<()>>,
 }
 
 impl ProjectPage {
@@ -68,6 +82,13 @@ impl ProjectPage {
             load_task: None,
             selected_section: ProjectSection::default(),
             history_grid: None,
+            history_branch_filter: HistoryBranchFilter::default(),
+            include_remote_branches: true,
+            branch_filter_open: false,
+            selected_history_commit: None,
+            selected_commit_files: None,
+            file_load_generation: 0,
+            file_load_task: None,
         }
     }
 
@@ -152,28 +173,366 @@ impl ProjectPage {
                     Ok(_) => ProjectLoadState::Failed { generation, message: "Repository data did not match this project.".into() },
                     Err(error) => ProjectLoadState::Failed { generation, message: error.user_message().to_owned() },
                 };
-                page.history_grid = match &page.state {
-                    ProjectLoadState::Ready(data) if !data.commits.is_empty() => {
-                        let commits = Rc::new(data.commits.clone());
-                        let graph_paths = Rc::new(
-                            commits
-                                .iter()
-                                .map(Self::build_commit_graph_paths)
-                                .collect::<Vec<_>>(),
-                        );
-                        Some(cx.new(|_| {
-                            DataGrid::new(Self::history_columns(), commits.len(), move |index| {
-                                Self::history_row(&commits[index], graph_paths[index].clone())
-                            })
-                            .expect("history columns are valid")
-                        }))
-                    }
-                    _ => None,
-                };
+                page.rebuild_history_grid(cx);
                 page.load_task = None;
                 cx.notify();
             });
         }));
+    }
+
+    fn rebuild_history_grid(&mut self, cx: &mut Context<Self>) {
+        self.selected_history_commit = None;
+        self.selected_commit_files = None;
+        self.file_load_generation = self.file_load_generation.wrapping_add(1);
+        self.file_load_task = None;
+        let ProjectLoadState::Ready(data) = &self.state else {
+            self.history_grid = None;
+            return;
+        };
+        let mut commits = data
+            .commits
+            .iter()
+            .filter(|commit| match self.history_branch_filter {
+                HistoryBranchFilter::Current => commit.reachable_from_current,
+                HistoryBranchFilter::All if self.include_remote_branches => {
+                    commit.reachable_from_local || commit.reachable_from_remote
+                }
+                HistoryBranchFilter::All => commit.reachable_from_local,
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if !self.include_remote_branches {
+            for commit in &mut commits {
+                commit
+                    .branches
+                    .retain(|branch| !commit.remote_branches.contains(branch));
+            }
+        }
+        if commits.is_empty() {
+            self.history_grid = None;
+            return;
+        }
+        build_commit_graph(&mut commits);
+        let commits = Rc::new(commits);
+        let graph_paths = Rc::new(
+            commits
+                .iter()
+                .map(Self::build_commit_graph_paths)
+                .collect::<Vec<_>>(),
+        );
+        let commits_for_selection = commits.clone();
+        let page = cx.entity();
+        self.history_grid = Some(cx.new(|_| {
+            DataGrid::new(Self::history_columns(), commits.len(), move |index| {
+                Self::history_row(&commits[index], graph_paths[index].clone())
+            })
+            .expect("history columns are valid")
+            .on_row_mouse_down(move |index, _, _, cx| {
+                let commit = commits_for_selection[index].clone();
+                let _ = page.update(cx, |page, cx| {
+                    page.select_history_commit(commit, cx);
+                });
+            })
+        }));
+    }
+
+    fn select_history_commit(&mut self, commit: super::CommitSummary, cx: &mut Context<Self>) {
+        self.file_load_generation = self.file_load_generation.wrapping_add(1);
+        let generation = self.file_load_generation;
+        let commit_id = commit.object_id.clone();
+        self.selected_history_commit = Some(commit);
+        self.selected_commit_files = None;
+        self.file_load_task = None;
+        cx.notify();
+
+        let loader = self.loader.clone();
+        let metadata = self.metadata.clone();
+        let background = cx
+            .background_executor()
+            .spawn(async move { loader.load_commit_files(&metadata, &commit_id) });
+        self.file_load_task = Some(cx.spawn(async move |this, cx| {
+            let result = background.await;
+            let _ = this.update(cx, |page, cx| {
+                if page.file_load_generation != generation {
+                    return;
+                }
+                page.selected_commit_files = Some(result.map_err(|error| error.to_string()));
+                page.file_load_task = None;
+                cx.notify();
+            });
+        }));
+    }
+
+    fn set_history_branch_filter(&mut self, filter: HistoryBranchFilter, cx: &mut Context<Self>) {
+        self.history_branch_filter = filter;
+        self.branch_filter_open = false;
+        self.rebuild_history_grid(cx);
+        cx.notify();
+    }
+
+    fn history_filter_option(
+        &self,
+        label: &'static str,
+        filter: HistoryBranchFilter,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .id(("history-branch-option", filter as usize))
+            .role(Role::Button)
+            .aria_label(label)
+            .w_full()
+            .h(px(24.))
+            .px_2()
+            .flex()
+            .items_center()
+            .cursor(CursorStyle::PointingHand)
+            .bg(if self.history_branch_filter == filter {
+                rgb(0xdbeafe)
+            } else {
+                rgb(0xffffff)
+            })
+            .hover(|style| style.bg(rgb(0xe2e8f0)))
+            .on_click(cx.listener(move |page, _, _, cx| {
+                page.set_history_branch_filter(filter, cx);
+            }))
+            .child(label)
+            .into_any_element()
+    }
+
+    fn history_toolbar(&self, cx: &mut Context<Self>) -> AnyElement {
+        let selected_label = match self.history_branch_filter {
+            HistoryBranchFilter::All => "All branches",
+            HistoryBranchFilter::Current => "Current branch",
+        };
+        div()
+            .id("history-filter-toolbar")
+            .h(px(36.))
+            .w_full()
+            .px_2()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap_3()
+            .border_b_1()
+            .border_color(rgb(0xcbd5e1))
+            .bg(rgb(0xf8fafc))
+            .child(
+                div()
+                    .relative()
+                    .child(
+                        div()
+                            .id("history-branch-select")
+                            .role(Role::Button)
+                            .aria_label("Branch filter")
+                            .w(px(140.))
+                            .h(px(24.))
+                            .px_2()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .border_1()
+                            .border_color(rgb(0xcbd5e1))
+                            .rounded(px(3.))
+                            .bg(rgb(0xffffff))
+                            .cursor(CursorStyle::PointingHand)
+                            .on_click(cx.listener(|page, _, _, cx| {
+                                page.branch_filter_open = !page.branch_filter_open;
+                                cx.notify();
+                            }))
+                            .child(selected_label)
+                            .child("▾"),
+                    )
+                    .when(self.branch_filter_open, |select| {
+                        select.child(
+                            deferred(
+                                div()
+                                    .absolute()
+                                    .top(px(26.))
+                                    .left_0()
+                                    .w(px(140.))
+                                    .border_1()
+                                    .border_color(rgb(0xcbd5e1))
+                                    .rounded(px(3.))
+                                    .bg(rgb(0xffffff))
+                                    .child(self.history_filter_option(
+                                        "All branches",
+                                        HistoryBranchFilter::All,
+                                        cx,
+                                    ))
+                                    .child(self.history_filter_option(
+                                        "Current branch",
+                                        HistoryBranchFilter::Current,
+                                        cx,
+                                    )),
+                            )
+                            .with_priority(1),
+                        )
+                    }),
+            )
+            .child(
+                div()
+                    .id("history-remote-branches")
+                    .role(Role::CheckBox)
+                    .aria_label("Remote branches")
+                    .aria_selected(self.include_remote_branches)
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .cursor(CursorStyle::PointingHand)
+                    .on_click(cx.listener(|page, _, _, cx| {
+                        page.include_remote_branches = !page.include_remote_branches;
+                        page.rebuild_history_grid(cx);
+                        cx.notify();
+                    }))
+                    .child(
+                        div()
+                            .size(px(14.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .border_1()
+                            .border_color(rgb(0x94a3b8))
+                            .rounded(px(2.))
+                            .bg(rgb(0xffffff))
+                            .when(self.include_remote_branches, |box_| box_.child("✓")),
+                    )
+                    .child("Remote branches"),
+            )
+            .into_any_element()
+    }
+
+    fn commit_detail_field(label: &'static str, value: String) -> AnyElement {
+        div()
+            .w_full()
+            .flex()
+            .child(
+                div()
+                    .w(px(82.))
+                    .flex_none()
+                    .text_color(rgb(0x64748b))
+                    .child(label),
+            )
+            .child(div().min_w_0().flex_1().child(value))
+            .into_any_element()
+    }
+
+    fn selected_commit_details(&self) -> AnyElement {
+        let Some(commit) = &self.selected_history_commit else {
+            return div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(rgb(0x64748b))
+                .child("Select a commit to view its details.")
+                .into_any_element();
+        };
+        let parents = if commit.parent_ids.is_empty() {
+            String::new()
+        } else {
+            commit.parent_ids.join("\n")
+        };
+        let message = if commit.message_body.is_empty() {
+            commit.summary.clone()
+        } else {
+            format!("{}\n\n{}", commit.summary, commit.message_body)
+        };
+        div()
+            .size_full()
+            .p_3()
+            .overflow_hidden()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(Self::commit_detail_field("Hash", commit.object_id.clone()))
+            .when(!parents.is_empty(), |details| {
+                details.child(Self::commit_detail_field("Parent Hash", parents))
+            })
+            .child(Self::commit_detail_field(
+                "Author",
+                format!("{} <{}>", commit.author_name, commit.author_email),
+            ))
+            .child(Self::commit_detail_field(
+                "Date",
+                Self::format_commit_time(
+                    commit.commit_time_seconds,
+                    commit.commit_time_offset_minutes,
+                ),
+            ))
+            .child(Self::commit_detail_field(
+                "Committer",
+                format!("{} <{}>", commit.committer_name, commit.committer_email),
+            ))
+            .child(div().h(px(8.)).flex_none())
+            .child(div().text_color(rgb(0x64748b)).child("Message"))
+            .child(
+                div()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .whitespace_normal()
+                    .child(message),
+            )
+            .into_any_element()
+    }
+
+    fn selected_commit_file_list(&self) -> AnyElement {
+        let content = match &self.selected_history_commit {
+            None => div()
+                .text_color(rgb(0x64748b))
+                .child("Select a commit to view its files.")
+                .into_any_element(),
+            Some(_) => match &self.selected_commit_files {
+                None => div()
+                    .id("history-files-loading")
+                    .role(Role::Status)
+                    .child("Loading changed files…")
+                    .into_any_element(),
+                Some(Ok(files)) if files.is_empty() => div()
+                    .text_color(rgb(0x64748b))
+                    .child("No changed files.")
+                    .into_any_element(),
+                Some(Ok(files)) => div()
+                    .w_full()
+                    .children(files.iter().cloned().map(|path| {
+                        div()
+                            .w_full()
+                            .h(px(22.))
+                            .px_1()
+                            .flex()
+                            .items_center()
+                            .child(path)
+                    }))
+                    .into_any_element(),
+                Some(Err(message)) => div()
+                    .id("history-files-error")
+                    .role(Role::Alert)
+                    .text_color(rgb(0xb91c1c))
+                    .child(message.clone())
+                    .into_any_element(),
+            },
+        };
+        div()
+            .size_full()
+            .min_h_0()
+            .p_2()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .h(px(24.))
+                    .flex_none()
+                    .text_color(rgb(0x64748b))
+                    .child("Files"),
+            )
+            .child(
+                div()
+                    .id("history-files-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .child(content),
+            )
+            .into_any_element()
     }
 
     fn state_content(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -193,11 +552,83 @@ impl ProjectPage {
                 .aria_label("Repository history is empty")
                 .child("This repository has no commits yet.")
                 .into_any_element(),
-            ProjectLoadState::Ready(_) => self
-                .history_grid
-                .as_ref()
-                .expect("ready history owns a grid")
-                .clone()
+            ProjectLoadState::Ready(_) => div()
+                .id("history-split-view")
+                .size_full()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(
+                    div()
+                        .id("history-upper-pane")
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_hidden()
+                        .flex()
+                        .flex_col()
+                        .child(self.history_toolbar(cx))
+                        .child(match &self.history_grid {
+                            Some(grid) => div()
+                                .flex_1()
+                                .min_h_0()
+                                .child(grid.clone())
+                                .into_any_element(),
+                            None => div()
+                                .flex_1()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child("No commits match the selected filters.")
+                                .into_any_element(),
+                        }),
+                )
+                .child(
+                    div()
+                        .id("history-lower-pane")
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .border_t_1()
+                        .border_color(rgb(0xcbd5e1))
+                        .bg(rgb(0xffffff))
+                        .child(
+                            div()
+                                .id("history-commit-details")
+                                .w_1_2()
+                                .h_full()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .flex()
+                                .flex_col()
+                                .border_r_1()
+                                .border_color(rgb(0xcbd5e1))
+                                .child(
+                                    div()
+                                        .id("history-commit-metadata")
+                                        .flex_1()
+                                        .min_h_0()
+                                        .overflow_hidden()
+                                        .child(self.selected_commit_details()),
+                                )
+                                .child(
+                                    div()
+                                        .id("history-commit-files")
+                                        .flex_1()
+                                        .min_h_0()
+                                        .overflow_hidden()
+                                        .border_t_1()
+                                        .border_color(rgb(0xcbd5e1))
+                                        .child(self.selected_commit_file_list()),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .id("history-lower-right-pane")
+                                .w_1_2()
+                                .h_full()
+                                .min_w_0(),
+                        ),
+                )
                 .into_any_element(),
             ProjectLoadState::Failed { message, .. } => {
                 let label = format!("Retry loading {}", self.metadata.display_name);
@@ -283,7 +714,7 @@ impl ProjectPage {
                     .flex_none()
                     .px_1()
                     .rounded(px(3.))
-                    .bg(rgb(0xdbeafe))
+                    .bg(rgb(0xfef3c7))
                     .child(label)
             }))
             .child(

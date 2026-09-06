@@ -123,6 +123,12 @@ As a project user, I see the generated topology in the existing History grid whi
 - **FR-030**: The commit-summary column MUST use the visible label `Description` while retaining its existing commit-summary content.
 - **FR-031**: Graph commit markers MUST be filled with their lane color except for HEAD, which MUST use a hollow marker.
 - **FR-032**: Description MUST represent HEAD with a circular indicator instead of a text label and MUST place that indicator before every branch label.
+- **FR-033**: History MUST place a filter toolbar directly above the grid containing a branch selector with `All branches` and `Current branch` options and a checked-by-default `Remote branches` checkbox.
+- **FR-034**: `Current branch` MUST show only commits reachable from the resolved HEAD, while `All branches` MUST show commits reachable from local branches and, when enabled, remote branches.
+- **FR-035**: Clearing `Remote branches` MUST exclude commits reachable only from remote branch tips, remove remote branch labels such as `origin/...` from Description cells, and rebuild graph lanes for the remaining displayed rows.
+- **FR-036**: The ready History page MUST be divided vertically into equal upper and lower panes; the existing filter toolbar and grid MUST occupy the upper pane, while the lower pane MUST remain an empty reserved container separated by a visible boundary.
+- **FR-037**: The lower History pane MUST be divided into equal left and right panels; selecting a grid row MUST show that commit's full Hash, Parent Hash values when present, Author, committer-time Date, Committer, and complete Message in the left panel, while the right panel remains reserved for future content.
+- **FR-038**: The lower-left History panel MUST be divided into equal upper and lower sections; the upper section MUST retain the selected commit metadata, while the lower section asynchronously lists paths changed between the selected commit and its first parent using gix, or the empty tree for a root commit.
 
 ### Key Entities
 
@@ -131,6 +137,7 @@ As a project user, I see the generated topology in the existing History grid whi
 - **Graph Edge**: A directed visual connection carrying a waiting commit identity between source and destination lanes, with a color and tip/continuation classification.
 - **Color Pool**: A per-history allocation sequence that assigns stable identities to newly created graph lanes.
 - **Branch Tip**: A shortened local or remote branch name paired with the commit identity from which traversal begins.
+- **History Filter**: The selected branch scope and remote-branch inclusion flag used to derive visible history rows.
 - **Graph History**: The ordered, bounded collection of graph tracks produced for one repository load.
 
 ## Success Criteria *(mandatory)*

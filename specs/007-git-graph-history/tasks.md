@@ -244,6 +244,13 @@ Repository implementation in `project/repository.rs` stays serialized. Test fixt
 
 ## Notes
 
+- [x] T046 Add local, remote, and current-branch reachability metadata during gix history loading.
+- [x] T047 Add the History branch selector and remote-branch checkbox toolbar, filter rows, and rebuild graph lanes after filter changes.
+- [x] T048 Track remote branch labels separately and hide them from Description cells while remote branches are disabled.
+- [x] T049 Split the ready History content into equal upper and lower panes, retain the toolbar and grid above, and reserve an empty lower pane.
+- [x] T050 Connect DataGrid row selection to ProjectPage and render selected commit metadata in the lower-left detail panel while reserving the lower-right panel.
+- [x] T051 Split the lower-left panel vertically and asynchronously load and display the selected commit's changed file paths using gix tree differences.
+
 - `[P]` marks only work that can proceed without an incomplete dependency in the same phase.
 - `[US1]` through `[US4]` provide direct traceability to `spec.md`.
 - Every task preserves the exact requested gix and supplied-algorithm constraints.

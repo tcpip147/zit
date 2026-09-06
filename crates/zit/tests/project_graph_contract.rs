@@ -10,6 +10,8 @@ fn commit(id: &str, parents: &[&str]) -> CommitSummary {
         message_body: String::new(),
         author_name: "author".into(),
         author_email: "author@example.com".into(),
+        committer_name: "committer".into(),
+        committer_email: "committer@example.com".into(),
         authored_at_seconds: 0,
         authored_at_offset_minutes: 0,
         commit_time_seconds: 0,
@@ -19,6 +21,10 @@ fn commit(id: &str, parents: &[&str]) -> CommitSummary {
         output_edges: Vec::new(),
         is_head: false,
         branches: Vec::new(),
+        remote_branches: Vec::new(),
+        reachable_from_current: false,
+        reachable_from_local: false,
+        reachable_from_remote: false,
     }
 }
 

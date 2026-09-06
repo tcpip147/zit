@@ -72,6 +72,8 @@ pub struct CommitSummary {
     pub message_body: String,
     pub author_name: String,
     pub author_email: String,
+    pub committer_name: String,
+    pub committer_email: String,
     pub authored_at_seconds: i64,
     pub authored_at_offset_minutes: i32,
     pub commit_time_seconds: i64,
@@ -81,6 +83,10 @@ pub struct CommitSummary {
     pub output_edges: Vec<CommitGraphEdge>,
     pub is_head: bool,
     pub branches: Vec<String>,
+    pub remote_branches: Vec<String>,
+    pub reachable_from_current: bool,
+    pub reachable_from_local: bool,
+    pub reachable_from_remote: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

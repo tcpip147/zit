@@ -13,7 +13,7 @@ use super::{
 
 const HISTORY_LIMIT: usize = 100;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct BranchTip {
     name: String,
     oid: ObjectId,
@@ -161,6 +161,13 @@ impl std::error::Error for RepositoryError {}
 pub trait RepositoryLoader: Send + Sync + 'static {
     fn inspect(&self, path: &Path, fallback_name: Option<&str>) -> ProjectMetadata;
     fn load_history(&self, metadata: &ProjectMetadata) -> Result<ProjectData, RepositoryError>;
+    fn load_commit_files(
+        &self,
+        _metadata: &ProjectMetadata,
+        _commit_id: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        Ok(Vec::new())
+    }
 }
 
 #[derive(Default)]
@@ -264,14 +271,26 @@ impl RepositoryLoader for GixRepositoryLoader {
         let remote = references.remote_branches().map_err(|error| {
             RepositoryError::new(format!("Could not read remote branches: {error}"))
         })?;
-        let branch_tips = local
-            .chain(remote)
+        let local_tips = local
             .filter_map(|reference| {
                 let mut reference = reference.ok()?;
                 let name = reference.name().shorten().to_string();
                 let oid = reference.peel_to_commit().ok()?.id;
                 Some(BranchTip { name, oid })
             })
+            .collect::<Vec<_>>();
+        let remote_tips = remote
+            .filter_map(|reference| {
+                let mut reference = reference.ok()?;
+                let name = reference.name().shorten().to_string();
+                let oid = reference.peel_to_commit().ok()?.id;
+                Some(BranchTip { name, oid })
+            })
+            .collect::<Vec<_>>();
+        let branch_tips = local_tips
+            .iter()
+            .chain(&remote_tips)
+            .cloned()
             .collect::<Vec<_>>();
 
         if branch_tips.is_empty() {
@@ -282,9 +301,35 @@ impl RepositoryLoader for GixRepositoryLoader {
             });
         }
 
+        let reachable = |tips: &[ObjectId]| -> HashSet<ObjectId> {
+            if tips.is_empty() {
+                return HashSet::new();
+            }
+            repository
+                .rev_walk(tips.iter().copied())
+                .all()
+                .ok()
+                .into_iter()
+                .flatten()
+                .filter_map(Result::ok)
+                .map(|info| info.id)
+                .collect()
+        };
+        let current_reachable = head.map_or_else(HashSet::new, |head| reachable(&[head]));
+        let local_reachable = reachable(&local_tips.iter().map(|tip| tip.oid).collect::<Vec<_>>());
+        let remote_reachable =
+            reachable(&remote_tips.iter().map(|tip| tip.oid).collect::<Vec<_>>());
+
         let mut branch_map: HashMap<ObjectId, Vec<String>> = HashMap::new();
         for branch in &branch_tips {
             branch_map
+                .entry(branch.oid)
+                .or_default()
+                .push(branch.name.clone());
+        }
+        let mut remote_branch_map: HashMap<ObjectId, Vec<String>> = HashMap::new();
+        for branch in &remote_tips {
+            remote_branch_map
                 .entry(branch.oid)
                 .or_default()
                 .push(branch.name.clone());
@@ -313,6 +358,9 @@ impl RepositoryLoader for GixRepositoryLoader {
             let author = commit.author().map_err(|error| {
                 RepositoryError::new(format!("Could not read a commit author: {error}"))
             })?;
+            let committer = commit.committer().map_err(|error| {
+                RepositoryError::new(format!("Could not read a commit committer: {error}"))
+            })?;
             let time = author.time().map_err(|error| {
                 RepositoryError::new(format!("Could not read a commit date: {error}"))
             })?;
@@ -336,6 +384,8 @@ impl RepositoryLoader for GixRepositoryLoader {
                 message_body,
                 author_name: author.name.to_string(),
                 author_email: author.email.to_string(),
+                committer_name: committer.name.to_string(),
+                committer_email: committer.email.to_string(),
                 authored_at_seconds: time.seconds,
                 authored_at_offset_minutes: time.offset,
                 commit_time_seconds: commit_time.seconds,
@@ -345,6 +395,10 @@ impl RepositoryLoader for GixRepositoryLoader {
                 output_edges: Vec::new(),
                 is_head: head.is_some_and(|head| head == info.id),
                 branches: branch_map.get(&info.id).cloned().unwrap_or_default(),
+                remote_branches: remote_branch_map.get(&info.id).cloned().unwrap_or_default(),
+                reachable_from_current: current_reachable.contains(&info.id),
+                reachable_from_local: local_reachable.contains(&info.id),
+                reachable_from_remote: remote_reachable.contains(&info.id),
             });
         }
         build_commit_graph(&mut commits);
@@ -353,5 +407,57 @@ impl RepositoryLoader for GixRepositoryLoader {
             head: head.map(|id| id.to_string()),
             commits,
         })
+    }
+
+    fn load_commit_files(
+        &self,
+        metadata: &ProjectMetadata,
+        commit_id: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        if let ProjectAvailability::Unavailable { message } = &metadata.availability {
+            return Err(RepositoryError::new(message.clone()));
+        }
+        let repository = gix::discover(&metadata.repository_path)
+            .map_err(|error| RepositoryError::new(format!("Could not open repository: {error}")))?;
+        let object_id = ObjectId::from_hex(commit_id.as_bytes()).map_err(|error| {
+            RepositoryError::new(format!("Could not parse commit identity: {error}"))
+        })?;
+        let commit = repository.find_commit(object_id).map_err(|error| {
+            RepositoryError::new(format!("Could not read selected commit: {error}"))
+        })?;
+        let new_tree = commit.tree().map_err(|error| {
+            RepositoryError::new(format!("Could not read selected commit tree: {error}"))
+        })?;
+        let old_tree = commit
+            .parent_ids()
+            .next()
+            .map(|parent| {
+                let parent = repository.find_commit(parent.detach()).map_err(|error| {
+                    RepositoryError::new(format!("Could not read parent commit: {error}"))
+                })?;
+                parent.tree().map_err(|error| {
+                    RepositoryError::new(format!("Could not read parent commit tree: {error}"))
+                })
+            })
+            .transpose()?;
+        let changes = repository
+            .diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None)
+            .map_err(|error| {
+                RepositoryError::new(format!("Could not read selected commit files: {error}"))
+            })?;
+        let mut files = changes
+            .into_iter()
+            .map(|change| match change {
+                gix::object::tree::diff::ChangeDetached::Addition { location, .. }
+                | gix::object::tree::diff::ChangeDetached::Deletion { location, .. }
+                | gix::object::tree::diff::ChangeDetached::Modification { location, .. }
+                | gix::object::tree::diff::ChangeDetached::Rewrite { location, .. } => {
+                    location.to_string()
+                }
+            })
+            .collect::<Vec<_>>();
+        files.sort();
+        files.dedup();
+        Ok(files)
     }
 }

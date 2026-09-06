@@ -140,6 +140,45 @@ fn reads_unique_newest_first_history_from_local_and_remote_branches() {
             .iter()
             .any(|commit| commit.branches.iter().any(|name| name.contains("topic")))
     );
+    let remote_commit = data
+        .commits
+        .iter()
+        .find(|commit| commit.object_id == remote.to_string())
+        .unwrap();
+    assert!(remote_commit.reachable_from_remote);
+    assert!(!remote_commit.reachable_from_local);
+    assert!(!remote_commit.reachable_from_current);
+    assert!(
+        remote_commit
+            .remote_branches
+            .iter()
+            .any(|name| name.contains("topic"))
+    );
+    let feature_commit = data
+        .commits
+        .iter()
+        .find(|commit| commit.object_id == feature.to_string())
+        .unwrap();
+    assert!(feature_commit.reachable_from_local);
+    assert!(!feature_commit.reachable_from_remote);
+    assert!(!feature_commit.reachable_from_current);
+    assert!(feature_commit.remote_branches.is_empty());
+    let base_commit = data
+        .commits
+        .iter()
+        .find(|commit| commit.object_id == base.to_string())
+        .unwrap();
+    assert!(base_commit.reachable_from_current);
+    assert!(base_commit.reachable_from_local);
+    assert!(base_commit.reachable_from_remote);
+    assert_eq!(base_commit.committer_name, "Graph Test");
+    assert_eq!(base_commit.committer_email, "graph@example.com");
+    assert!(
+        loader
+            .load_commit_files(&loader.inspect(directory.path(), None), &base.to_string(),)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
