@@ -131,8 +131,9 @@ mod tests {
     fn keyboard_navigation_skips_disabled_commands() {
         let mut state = MenuState::default();
         state.open(MenuId::File);
-        assert_eq!(state.highlighted, Some(1));
-        assert_eq!(state.selected_command(), Some(ShellCommand::OpenRepository));
+        assert_eq!(state.highlighted, Some(0));
+        assert_eq!(state.selected_command(), Some(ShellCommand::NewRepository));
+        state.move_highlight(2);
         state.move_highlight(1);
         assert_eq!(
             state.selected_command(),

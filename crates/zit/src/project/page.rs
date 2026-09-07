@@ -540,6 +540,15 @@ impl ProjectPage {
         }));
     }
 
+    fn refresh_history(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.state, ProjectLoadState::Loading { .. }) {
+            return;
+        }
+        self.state = ProjectLoadState::NotLoaded;
+        self.history_grid = None;
+        self.start_load(cx);
+    }
+
     fn rebuild_history_grid(&mut self, cx: &mut Context<Self>) {
         self.selected_history_commit = None;
         self.selected_commit_files = None;
@@ -2002,6 +2011,7 @@ impl ProjectPage {
             let _ = this.update(cx, |page, cx| {
                 if result.is_ok() {
                     page.load_file_status(cx);
+                    page.refresh_history(cx);
                 } else {
                     cx.notify();
                 }

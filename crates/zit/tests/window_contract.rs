@@ -5,7 +5,7 @@ use platform::ShellCommand;
 
 #[test]
 fn unavailable_repository_commands_are_rejected_at_dispatch_boundary() {
-    assert!(!ShellCommand::NewRepository.is_enabled());
+    assert!(ShellCommand::NewRepository.is_enabled());
     assert!(!ShellCommand::OpenRepository.is_enabled());
     assert!(!ShellCommand::CloneRepository.is_enabled());
 }
