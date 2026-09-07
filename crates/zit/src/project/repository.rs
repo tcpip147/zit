@@ -11,7 +11,7 @@ use super::{
     ProjectMetadata, WorkingTreeFile,
 };
 
-const HISTORY_LIMIT: usize = 100;
+pub(crate) const HISTORY_LIMIT: usize = 100;
 
 #[derive(Clone, Debug)]
 struct BranchTip {
@@ -161,6 +161,15 @@ impl std::error::Error for RepositoryError {}
 pub trait RepositoryLoader: Send + Sync + 'static {
     fn inspect(&self, path: &Path, fallback_name: Option<&str>) -> ProjectMetadata;
     fn load_history(&self, metadata: &ProjectMetadata) -> Result<ProjectData, RepositoryError>;
+    fn load_history_page(
+        &self,
+        metadata: &ProjectMetadata,
+        offset: usize,
+    ) -> Result<ProjectData, RepositoryError> {
+        let mut data = self.load_history(metadata)?;
+        data.commits = data.commits.into_iter().skip(offset).collect();
+        Ok(data)
+    }
     fn load_commit_files(
         &self,
         _metadata: &ProjectMetadata,
@@ -176,12 +185,40 @@ pub trait RepositoryLoader: Send + Sync + 'static {
     ) -> Result<String, RepositoryError> {
         Ok(String::new())
     }
-    fn load_working_tree_files(&self, _metadata: &ProjectMetadata) -> Result<Vec<WorkingTreeFile>, RepositoryError> { Ok(Vec::new()) }
-    fn load_working_tree_diff(&self, _metadata: &ProjectMetadata, _path: &str, _staged: bool) -> Result<String, RepositoryError> { Ok(String::new()) }
-    fn stage_file(&self, _metadata: &ProjectMetadata, _path: &str) -> Result<(), RepositoryError> { Ok(()) }
-    fn unstage_file(&self, _metadata: &ProjectMetadata, _path: &str) -> Result<(), RepositoryError> { Ok(()) }
-    fn commit(&self, _metadata: &ProjectMetadata, _message: &str) -> Result<(), RepositoryError> { Ok(()) }
-    fn commit_with_options(&self, metadata: &ProjectMetadata, message: &str, _amend: bool, _push: bool) -> Result<(), RepositoryError> {
+    fn load_working_tree_files(
+        &self,
+        _metadata: &ProjectMetadata,
+    ) -> Result<Vec<WorkingTreeFile>, RepositoryError> {
+        Ok(Vec::new())
+    }
+    fn load_working_tree_diff(
+        &self,
+        _metadata: &ProjectMetadata,
+        _path: &str,
+        _staged: bool,
+    ) -> Result<String, RepositoryError> {
+        Ok(String::new())
+    }
+    fn stage_file(&self, _metadata: &ProjectMetadata, _path: &str) -> Result<(), RepositoryError> {
+        Ok(())
+    }
+    fn unstage_file(
+        &self,
+        _metadata: &ProjectMetadata,
+        _path: &str,
+    ) -> Result<(), RepositoryError> {
+        Ok(())
+    }
+    fn commit(&self, _metadata: &ProjectMetadata, _message: &str) -> Result<(), RepositoryError> {
+        Ok(())
+    }
+    fn commit_with_options(
+        &self,
+        metadata: &ProjectMetadata,
+        message: &str,
+        _amend: bool,
+        _push: bool,
+    ) -> Result<(), RepositoryError> {
         self.commit(metadata, message)
     }
 }
@@ -228,10 +265,20 @@ impl GixRepositoryLoader {
         }
     }
 
-    fn run_git_path_command(metadata: &ProjectMetadata, args: Vec<&str>) -> Result<(), RepositoryError> {
-        let output = std::process::Command::new("git").current_dir(&metadata.repository_path).args(args).output()
+    fn run_git_path_command(
+        metadata: &ProjectMetadata,
+        args: Vec<&str>,
+    ) -> Result<(), RepositoryError> {
+        let output = std::process::Command::new("git")
+            .current_dir(&metadata.repository_path)
+            .args(args)
+            .output()
             .map_err(|e| RepositoryError::new(format!("Could not update file status: {e}")))?;
-        if !output.status.success() { return Err(RepositoryError::new(String::from_utf8_lossy(&output.stderr).trim().to_owned())); }
+        if !output.status.success() {
+            return Err(RepositoryError::new(
+                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            ));
+        }
         Ok(())
     }
 }
@@ -270,6 +317,14 @@ impl RepositoryLoader for GixRepositoryLoader {
     }
 
     fn load_history(&self, metadata: &ProjectMetadata) -> Result<ProjectData, RepositoryError> {
+        self.load_history_page(metadata, 0)
+    }
+
+    fn load_history_page(
+        &self,
+        metadata: &ProjectMetadata,
+        offset: usize,
+    ) -> Result<ProjectData, RepositoryError> {
         if let ProjectAvailability::Unavailable { message } = &metadata.availability {
             return Err(RepositoryError::new(message.clone()));
         }
@@ -371,7 +426,7 @@ impl RepositoryLoader for GixRepositoryLoader {
             .all()
             .map_err(|error| RepositoryError::new(format!("Could not read history: {error}")))?;
         let mut commits = Vec::new();
-        for info in walk.take(HISTORY_LIMIT) {
+        for info in walk.skip(offset).take(HISTORY_LIMIT) {
             let info = info.map_err(|error| {
                 RepositoryError::new(format!("Could not traverse history: {error}"))
             })?;
@@ -459,7 +514,9 @@ impl RepositoryLoader for GixRepositoryLoader {
                 commit_id,
             ])
             .output()
-            .map_err(|error| RepositoryError::new(format!("Could not read selected commit files: {error}")))?;
+            .map_err(|error| {
+                RepositoryError::new(format!("Could not read selected commit files: {error}"))
+            })?;
         if !output.status.success() {
             return Err(RepositoryError::new(format!(
                 "Could not read selected commit files: {}",
@@ -485,9 +542,19 @@ impl RepositoryLoader for GixRepositoryLoader {
     ) -> Result<String, RepositoryError> {
         let output = std::process::Command::new("git")
             .current_dir(&metadata.repository_path)
-            .args(["diff", "--no-ext-diff", "--format=", &format!("{}^", commit_id), commit_id, "--", path])
+            .args([
+                "diff",
+                "--no-ext-diff",
+                "--format=",
+                &format!("{}^", commit_id),
+                commit_id,
+                "--",
+                path,
+            ])
             .output()
-            .map_err(|error| RepositoryError::new(format!("Could not read file changes: {error}")))?;
+            .map_err(|error| {
+                RepositoryError::new(format!("Could not read file changes: {error}"))
+            })?;
         if !output.status.success() {
             return Err(RepositoryError::new(
                 String::from_utf8_lossy(&output.stderr).trim().to_owned(),
@@ -496,30 +563,68 @@ impl RepositoryLoader for GixRepositoryLoader {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
-    fn load_working_tree_files(&self, metadata: &ProjectMetadata) -> Result<Vec<WorkingTreeFile>, RepositoryError> {
-        let output = std::process::Command::new("git").current_dir(&metadata.repository_path)
-            .args(["status", "--porcelain=v1", "-z"]).output()
+    fn load_working_tree_files(
+        &self,
+        metadata: &ProjectMetadata,
+    ) -> Result<Vec<WorkingTreeFile>, RepositoryError> {
+        let output = std::process::Command::new("git")
+            .current_dir(&metadata.repository_path)
+            .args(["status", "--porcelain=v1", "-z"])
+            .output()
             .map_err(|e| RepositoryError::new(format!("Could not read working tree: {e}")))?;
-        if !output.status.success() { return Err(RepositoryError::new(String::from_utf8_lossy(&output.stderr).trim().to_owned())); }
+        if !output.status.success() {
+            return Err(RepositoryError::new(
+                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            ));
+        }
         let mut files = Vec::new();
-        for entry in String::from_utf8_lossy(&output.stdout).split('\0').filter(|e| !e.is_empty()) {
-            if entry.len() < 4 { continue; }
+        for entry in String::from_utf8_lossy(&output.stdout)
+            .split('\0')
+            .filter(|e| !e.is_empty())
+        {
+            if entry.len() < 4 {
+                continue;
+            }
             let status = entry.as_bytes();
             let path = entry[3..].trim_start_matches('"').to_owned();
-            if status[0] != b' ' && status[0] != b'?' { files.push(WorkingTreeFile { path: path.clone(), staged: true }); }
-            if status[1] != b' ' { files.push(WorkingTreeFile { path, staged: false }); }
+            if status[0] != b' ' && status[0] != b'?' {
+                files.push(WorkingTreeFile {
+                    path: path.clone(),
+                    staged: true,
+                });
+            }
+            if status[1] != b' ' {
+                files.push(WorkingTreeFile {
+                    path,
+                    staged: false,
+                });
+            }
         }
         files.sort_by(|a, b| a.path.cmp(&b.path).then(a.staged.cmp(&b.staged)));
         Ok(files)
     }
 
-    fn load_working_tree_diff(&self, metadata: &ProjectMetadata, path: &str, staged: bool) -> Result<String, RepositoryError> {
+    fn load_working_tree_diff(
+        &self,
+        metadata: &ProjectMetadata,
+        path: &str,
+        staged: bool,
+    ) -> Result<String, RepositoryError> {
         let mut command = std::process::Command::new("git");
         command.current_dir(&metadata.repository_path);
-        if staged { command.args(["diff", "--cached", "--no-ext-diff", "--", path]); }
-        else { command.args(["diff", "--no-ext-diff", "--", path]); }
-        let output = command.output().map_err(|e| RepositoryError::new(format!("Could not read file changes: {e}")))?;
-        if !output.status.success() { return Err(RepositoryError::new(String::from_utf8_lossy(&output.stderr).trim().to_owned())); }
+        if staged {
+            command.args(["diff", "--cached", "--no-ext-diff", "--", path]);
+        } else {
+            command.args(["diff", "--no-ext-diff", "--", path]);
+        }
+        let output = command
+            .output()
+            .map_err(|e| RepositoryError::new(format!("Could not read file changes: {e}")))?;
+        if !output.status.success() {
+            return Err(RepositoryError::new(
+                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            ));
+        }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
@@ -527,27 +632,60 @@ impl RepositoryLoader for GixRepositoryLoader {
         self.commit_with_options(metadata, message, false, false)
     }
 
-    fn commit_with_options(&self, metadata: &ProjectMetadata, message: &str, amend: bool, push: bool) -> Result<(), RepositoryError> {
+    fn commit_with_options(
+        &self,
+        metadata: &ProjectMetadata,
+        message: &str,
+        amend: bool,
+        push: bool,
+    ) -> Result<(), RepositoryError> {
         let mut command = std::process::Command::new("git");
-        command.current_dir(&metadata.repository_path).args(["commit", "-m", message]);
-        if amend { command.arg("--amend"); }
-        let output = command.output()
+        command
+            .current_dir(&metadata.repository_path)
+            .args(["commit", "-m", message]);
+        if amend {
+            command.arg("--amend");
+        }
+        let output = command
+            .output()
             .map_err(|e| RepositoryError::new(format!("Could not create commit: {e}")))?;
-        if !output.status.success() { return Err(RepositoryError::new(String::from_utf8_lossy(&output.stderr).trim().to_owned())); }
+        if !output.status.success() {
+            return Err(RepositoryError::new(
+                String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            ));
+        }
         if push {
-            let output = std::process::Command::new("git").current_dir(&metadata.repository_path).args(["push"]).output()
+            let output = std::process::Command::new("git")
+                .current_dir(&metadata.repository_path)
+                .args(["push"])
+                .output()
                 .map_err(|e| RepositoryError::new(format!("Could not push commit: {e}")))?;
-            if !output.status.success() { return Err(RepositoryError::new(String::from_utf8_lossy(&output.stderr).trim().to_owned())); }
+            if !output.status.success() {
+                return Err(RepositoryError::new(
+                    String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+                ));
+            }
         }
         Ok(())
     }
 
     fn stage_file(&self, metadata: &ProjectMetadata, path: &str) -> Result<(), RepositoryError> {
-        Self::run_git_path_command(metadata, ["add", "--"].into_iter().chain([path].into_iter()).collect())
+        Self::run_git_path_command(
+            metadata,
+            ["add", "--"]
+                .into_iter()
+                .chain([path].into_iter())
+                .collect(),
+        )
     }
 
     fn unstage_file(&self, metadata: &ProjectMetadata, path: &str) -> Result<(), RepositoryError> {
-        Self::run_git_path_command(metadata, ["restore", "--staged", "--"].into_iter().chain([path].into_iter()).collect())
+        Self::run_git_path_command(
+            metadata,
+            ["restore", "--staged", "--"]
+                .into_iter()
+                .chain([path].into_iter())
+                .collect(),
+        )
     }
-
 }

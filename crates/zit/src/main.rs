@@ -68,6 +68,7 @@ fn main() {
         }
     });
     app.run(|cx: &mut App| {
+        widget::init_text_editor(cx);
         let project_store = cx.new(|_| ProjectStore::new(default_session_path()));
         cx.set_global(GlobalProjectStore(project_store.clone()));
         project_store.update(cx, |store, cx| {

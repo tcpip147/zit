@@ -197,3 +197,53 @@ fn seeds_three_distinct_test_repositories_only_for_empty_store(cx: &mut TestAppC
         );
     }
 }
+
+#[gpui::test]
+fn add_repository_rejects_invalid_paths_and_deduplicates_valid_repositories(
+    cx: &mut TestAppContext,
+) {
+    let directory = tempdir().unwrap();
+    let session_path = directory.path().join("session.json");
+    let repository = directory.path().join("repository");
+    gix::init(&repository).unwrap();
+    let missing = directory.path().join("missing");
+    let non_repository = directory.path().join("not-a-repository");
+    std::fs::create_dir_all(&non_repository).unwrap();
+    let store = cx.new(|_| {
+        ProjectStore::with_loader(session_path, Arc::new(MetadataLoader))
+    });
+
+    let missing_error = store.update(cx, |store, cx| {
+        store
+            .add_repository(missing.clone(), "Missing".into(), cx)
+            .unwrap_err()
+    });
+    assert_eq!(missing_error, "Folder does not exist.");
+
+    let non_repository_error = store.update(cx, |store, cx| {
+        store
+            .add_repository(non_repository.clone(), "Not Git".into(), cx)
+            .unwrap_err()
+    });
+    assert_eq!(
+        non_repository_error,
+        "The selected folder is not a Git repository."
+    );
+
+    let first_id = store.update(cx, |store, cx| {
+        store
+            .add_repository(repository.clone(), "First Name".into(), cx)
+            .unwrap()
+    });
+    let second_id = store.update(cx, |store, cx| {
+        store
+            .add_repository(repository, "Second Name".into(), cx)
+            .unwrap()
+    });
+    assert_eq!(first_id, second_id);
+    assert_eq!(store.read_with(cx, |store, _| store.projects().len()), 1);
+    assert_eq!(
+        store.read_with(cx, |store, _| store.active_project().cloned()),
+        Some(first_id)
+    );
+}

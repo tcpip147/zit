@@ -31,4 +31,4 @@
 
 ## Notes
 
-- All checklist checks pass. The specification also covers DiffEditor parsing, split gutter/code panes, synchronized vertical scrolling, code-only horizontal scrolling, scrollbar interactions, file-switch reset, and virtualization. References to `gix`, the 100-track bound, and supplied graph structures remain explicit project constraints.
+- All checklist checks pass. The specification also covers DiffEditor parsing, split gutter/code panes, synchronized vertical scrolling, code-only horizontal scrolling, scrollbar interactions, file-switch reset, virtualization, and bottom-triggered paginated history loading. References to `gix`, the per-page 100-track bound, continuation state, deduplication, retry, exhaustion, and supplied graph structures remain explicit project constraints.

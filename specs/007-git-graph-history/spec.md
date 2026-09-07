@@ -76,7 +76,24 @@ As a project user, I see the generated topology in the existing History grid whi
 2. **Given** history is empty or loading fails, **When** History is displayed, **Then** the existing empty or retry presentation remains responsible for feedback.
 3. **Given** two project pages are open, **When** their histories are loaded and scrolled independently, **Then** graph data and view state do not leak between projects.
 
-### User Story 5 - Inspect File Diffs in a Diff Editor (Priority: P2)
+### User Story 5 - Load More History at the Grid Bottom (Priority: P1)
+
+As a user browsing project history, I can continue scrolling past the initially loaded commits and have the next commit list added automatically to the bottom of the grid, so I can inspect older history without restarting the view or pressing a separate load button.
+
+**Why this priority**: A bounded initial result must not prevent users from reaching older commits that are relevant to investigation.
+
+**Independent Test**: Use a repository with more commits than one history page, scroll the grid to its bottom repeatedly, and verify that additional older rows are appended in order, loading is not duplicated, and the grid stops requesting data after the history is exhausted.
+
+**Acceptance Scenarios**:
+
+1. **Given** more history is available and the user reaches the bottom threshold of the grid, **When** the bottom condition is detected, **Then** the next page of commits is loaded automatically and appended after the existing rows.
+2. **Given** a page is being loaded, **When** the user remains at or repeatedly reaches the bottom, **Then** only one request is active and no duplicate rows are appended.
+3. **Given** the next page overlaps commits already displayed, **When** it is appended, **Then** each commit remains represented by one row and graph lanes are rebuilt or extended consistently for the combined ordered history.
+4. **Given** no more commits are available, **When** the user reaches the bottom, **Then** no further load is started and the grid remains stable.
+5. **Given** an additional page fails to load, **When** the user reaches the bottom again or retries, **Then** the existing rows remain visible and the user receives a recoverable retry state for the additional page.
+6. **Given** additional rows are appended, **When** the user is already viewing the bottom of the grid, **Then** the current visible position remains stable and the newly appended rows can be reached by continued scrolling.
+
+### User Story 6 - Inspect File Diffs in a Diff Editor (Priority: P2)
 
 As a user selecting a changed file in a commit, I can inspect a readable, navigable diff with before and after line numbers while keeping the line-number gutter fixed during horizontal scrolling.
 
@@ -106,6 +123,10 @@ As a user selecting a changed file in a commit, I can inspect a readable, naviga
 - Commit messages have no body or contain non-UTF-8 data requiring the repository backend's normal lossy text representation.
 - Author information or commit-time parsing fails after traversal has begun.
 - Two commits have the same commit timestamp.
+- The grid reaches its bottom while an additional history page is already loading.
+- The repository ends exactly at a page boundary or returns fewer commits than the requested page size.
+- An additional page contains commits already present because traversal boundaries overlap.
+- The repository changes or becomes unavailable while an additional page is loading.
 
 ## Requirements *(mandatory)*
 
@@ -116,6 +137,13 @@ As a user selecting a changed file in a commit, I can inspect a readable, naviga
 - **FR-003**: Unreadable or non-commit branch references MUST be skipped independently so one invalid reference does not suppress valid history.
 - **FR-004**: Reachable commits MUST appear at most once in newest-first commit-time traversal order.
 - **FR-005**: One graph-history load MUST return no more than 100 commit tracks.
+- **FR-005a**: The History grid MUST load an initial page and MUST automatically request the next page when the user reaches the configured bottom threshold while more history is available.
+- **FR-005b**: Each additional page MUST be appended after the existing rows in older-to-newer continuation order, preserving the overall newest-first ordering.
+- **FR-005c**: The system MUST NOT start more than one initial or additional history request for the same repository and filter state at a time.
+- **FR-005d**: Additional pages MUST deduplicate commit identities against all already displayed rows before they are appended.
+- **FR-005e**: When an additional page returns no new commits or fewer than the page limit, the system MUST mark that history/filter result exhausted and MUST NOT issue further automatic requests.
+- **FR-005f**: When an additional page fails, the system MUST preserve already displayed rows, expose a retryable load-more failure state, and permit retry without duplicating successful rows.
+- **FR-005g**: Appending rows MUST preserve the user's current grid scroll position; if the user is at the bottom, the appended rows MUST remain available through continued scrolling rather than forcing an unrelated jump.
 - **FR-006**: Each commit track MUST contain the commit object identity, commit time, message title, message body, author name, author email, commit-lane marker, incoming edges, outgoing edges, HEAD status, and attached branch names.
 - **FR-007**: A lane marker MUST contain a zero-based lane number and a reusable color identity.
 - **FR-008**: An edge MUST contain the commit it is waiting to reach, source lane, destination lane, reusable color identity, and whether it is a commit-tip edge or a continuing non-tip edge.
@@ -180,6 +208,8 @@ As a user selecting a changed file in a commit, I can inspect a readable, naviga
 - **Branch Tip**: A shortened local or remote branch name paired with the commit identity from which traversal begins.
 - **History Filter**: The selected branch scope and remote-branch inclusion flag used to derive visible history rows.
 - **Graph History**: The ordered, bounded collection of graph tracks produced for one repository load.
+- **History Page**: One ordered batch of graph tracks and its continuation state, including whether another batch can be requested, is loading, failed, or exhausted.
+- **History Load State**: The per-repository and per-filter state that prevents duplicate requests and records initial/additional loading, retryable failure, and exhaustion.
 
 ## Success Criteria *(mandatory)*
 
@@ -193,11 +223,16 @@ As a user selecting a changed file in a commit, I can inspect a readable, naviga
 - **SC-006**: Existing loading, empty, failure, retry, scrolling, and multi-project History acceptance tests continue to pass without regression.
 - **SC-007**: Invalid individual branch references do not prevent valid graph history from loading in 100% of mixed-validity acceptance cases.
 - **SC-008**: Repository and metadata failures produce a recoverable user-visible error with zero process panics in all defined failure scenarios.
+- **SC-009**: For a repository containing more than one page of commits, 100% of bottom-reaching test runs append the next available page without user-initiated refresh and without duplicate commit rows.
+- **SC-010**: Repeated bottom events during one in-flight request result in exactly one additional request, and exhausted histories result in zero subsequent requests.
+- **SC-011**: In load-more failure tests, all previously visible rows remain available and a retry can recover the next page without reordering or duplicating rows.
 
 ## Assumptions
 
 - The supplied `Branch`, `Edge`, `Marker`, `Track`, and `ColorPool` concepts and the supplied lane-transition algorithm are authoritative; names and ownership may be adapted to existing project conventions without changing observable topology.
 - The graph is bounded to the first 100 commits produced by newest-first commit-time traversal, matching the supplied code.
+- Each history page contains at most 100 commits; the initial page and subsequent pages use a continuation boundary so users can browse beyond the first page until the repository history is exhausted.
+- The bottom trigger uses a small prefetch threshold before the absolute final row to avoid requiring pixel-perfect scrolling, while preserving the user-visible order.
 - Local and remote branches are graph roots; tags and other reference namespaces are outside this feature unless also reachable from those branches.
 - Shortened branch names follow the repository backend's established reference-shortening behavior; identical display names from different namespaces remain separate labels if both references are present.
 - Graph colors are stable numeric identities chosen per history load; visual color values belong to the presentation layer.

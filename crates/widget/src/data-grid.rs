@@ -112,6 +112,7 @@ impl std::error::Error for DataGridError {}
 
 type RowRenderer = Rc<dyn Fn(usize) -> DataGridRow>;
 type RowMouseDownHandler = Rc<dyn Fn(usize, &MouseDownEvent, &mut Window, &mut App)>;
+type BottomReachedHandler = Rc<dyn Fn(&mut App)>;
 const COLUMN_RESIZE_HIT_WIDTH: Pixels = px(8.);
 const MIN_COLUMN_WIDTH: f32 = 40.;
 
@@ -128,6 +129,7 @@ pub struct DataGrid {
     row_count: usize,
     render_row: RowRenderer,
     row_mouse_down_handler: Option<RowMouseDownHandler>,
+    bottom_reached_handler: Option<BottomReachedHandler>,
     selected_row: Option<usize>,
     row_height: Pixels,
     header_height: Pixels,
@@ -154,6 +156,7 @@ impl DataGrid {
             row_count,
             render_row: Rc::new(render_row),
             row_mouse_down_handler: None,
+            bottom_reached_handler: None,
             selected_row: None,
             row_height: px(24.),
             header_height: px(24.),
@@ -228,6 +231,13 @@ impl DataGrid {
     pub fn clear_on_row_mouse_down(&mut self, cx: &mut Context<Self>) {
         self.row_mouse_down_handler = None;
         cx.notify();
+    }
+    pub fn on_bottom_reached(
+        mut self,
+        handler: impl Fn(&mut App) + 'static,
+    ) -> Self {
+        self.bottom_reached_handler = Some(Rc::new(handler));
+        self
     }
     pub fn set_rows(
         &mut self,
@@ -623,6 +633,16 @@ impl DataGrid {
         if self.scroll.is_scrollable() {
             self.show_temporarily(cx)
         }
+        let at_bottom = {
+            let state = self.scroll.0.borrow();
+            let max = state.base_handle.max_offset().y.as_f32().max(0.);
+            state.base_handle.offset().y.as_f32() <= -max + 1.
+        };
+        if at_bottom {
+            if let Some(handler) = self.bottom_reached_handler.clone() {
+                cx.defer(move |cx| handler(cx));
+            }
+        }
     }
     fn hover_scrollbar(&mut self, hovered: &bool, _: &mut Window, cx: &mut Context<Self>) {
         self.scrollbar_hovered = *hovered;
@@ -641,14 +661,18 @@ impl DataGrid {
     }
     fn jump_to_track(&mut self, e: &MouseDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         let (viewport, thumb, _, scrollable) = self.geometry();
-        if !scrollable { return; }
+        if !scrollable {
+            return;
+        }
         let state = self.scroll.0.borrow();
         let bounds = state.base_handle.bounds();
         let max = state.base_handle.max_offset().y.as_f32().max(0.);
         let position = (e.position.y.as_f32() - bounds.origin.y.as_f32() - 2. - thumb / 2.)
             .clamp(0., (viewport - thumb).max(0.));
         let x = state.base_handle.offset().x;
-        state.base_handle.set_offset(point(x, px(-(position / (viewport - thumb).max(1.)) * max)));
+        state
+            .base_handle
+            .set_offset(point(x, px(-(position / (viewport - thumb).max(1.)) * max)));
         drop(state);
         self.show_temporarily(cx);
         cx.notify();
@@ -814,5 +838,17 @@ mod data_grid_tests {
 
         let grid = grid.on_row_mouse_down(|index, _, _, _| assert_eq!(index, 0));
         assert!(grid.row_mouse_down_handler.is_some());
+    }
+
+    #[test]
+    fn bottom_reached_handler_is_optional_and_configurable() {
+        let columns = vec![DataGridColumn::new("value", "Value")];
+        let grid = DataGrid::new(columns, 1, |_| {
+            DataGridRow::new([DataGridCell::text("row")])
+        })
+        .expect("valid grid");
+        assert!(grid.bottom_reached_handler.is_none());
+        let grid = grid.on_bottom_reached(|_| {});
+        assert!(grid.bottom_reached_handler.is_some());
     }
 }

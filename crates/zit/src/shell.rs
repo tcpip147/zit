@@ -3,7 +3,7 @@ use gpui::{
     Role, Subscription, Window, WindowControlArea, actions, deferred, div, prelude::*, px, rgb,
     svg,
 };
-use widget::{NF, TabBar, TabSpec, Theme};
+use widget::{NF, TabBar, TabSpec, TextInput, Theme};
 use zit::project::{ProjectId, ProjectStore, ProjectStoreEvent};
 
 use crate::{
@@ -23,6 +23,8 @@ pub struct ZitShell {
     profile: PlatformProfile,
     menus: MenuState,
     about_open: bool,
+    open_project: Option<(Entity<TextInput>, Entity<TextInput>)>,
+    open_error: Option<String>,
     active: bool,
     focus_handle: FocusHandle,
     tab_bar: Entity<TabBar>,
@@ -88,6 +90,8 @@ impl ZitShell {
             profile: PlatformProfile::current(),
             menus: MenuState::default(),
             about_open: false,
+            open_project: None,
+            open_error: None,
             active: true,
             focus_handle,
             tab_bar,
@@ -165,12 +169,136 @@ impl ZitShell {
             return;
         }
         self.menus.close();
-        if command == ShellCommand::ShowAbout {
+        if command == ShellCommand::OpenRepository {
+            let name = cx.new(TextInput::new);
+            let path = cx.new(TextInput::new);
+            self.open_project = Some((name, path));
+            self.open_error = None;
+        } else if command == ShellCommand::ShowAbout {
             self.about_open = true;
         } else {
             dispatch_window_command(command, window, cx);
         }
         cx.notify();
+    }
+
+    fn browse_folder(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let Some((_, _path)) = self.open_project.clone() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            let selected = rfd::FileDialog::new().pick_folder();
+            if let Some(folder) = selected {
+                this.update(cx, |shell, cx| {
+                    if let Some((_, input)) = &shell.open_project {
+                        input.update(cx, |input, cx| {
+                            input.set_value(folder.display().to_string(), cx)
+                        });
+                    }
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    fn confirm_open(&mut self, _: &gpui::ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let Some((name, path)) = &self.open_project else {
+            return;
+        };
+        let name = name.read(cx).value().trim().to_owned();
+        let path = path.read(cx).value().trim().to_owned();
+        if name.is_empty() || path.is_empty() {
+            self.open_error = Some("Project name and folder are required.".into());
+            cx.notify();
+            return;
+        }
+        match self
+            .project_store
+            .update(cx, |store, cx| store.add_repository(path.into(), name, cx))
+        {
+            Ok(_) => self.open_project = None,
+            Err(error) => self.open_error = Some(error),
+        }
+        cx.notify();
+    }
+
+    fn open_dialog(&self, cx: &mut Context<Self>) -> AnyElement {
+        let Some((name, path)) = &self.open_project else {
+            return div().into_any_element();
+        };
+        let error = self.open_error.clone();
+        div()
+            .id("open-project-overlay")
+            .role(Role::Dialog)
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(gpui::rgba(0x00000088))
+            .child(
+                div()
+                    .w(px(420.))
+                    .p_5()
+                    .bg(rgb(0xffffff))
+                    .rounded_md()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .child("Open Project")
+                    .child(div().child("Project name").child(name.clone()))
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(div().flex_1().child(path.clone()))
+                            .child(
+                                div()
+                                    .id("browse-folder")
+                                    .px_3()
+                                    .py_1()
+                                    .bg(rgb(0xe2e8f0))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(Self::browse_folder))
+                                    .child("Browse..."),
+                            ),
+                    )
+                    .when_some(error, |dialog, error| {
+                        dialog.child(div().text_color(rgb(0xb91c1c)).child(error))
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .justify_end()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .id("open-cancel")
+                                    .px_3()
+                                    .py_1()
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.open_project = None;
+                                        this.open_error = None;
+                                        cx.notify();
+                                    }))
+                                    .child("Cancel"),
+                            )
+                            .child(
+                                div()
+                                    .id("open-confirm")
+                                    .px_3()
+                                    .py_1()
+                                    .bg(rgb(0x2563eb))
+                                    .text_color(rgb(0xffffff))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(Self::confirm_open))
+                                    .child("Open"),
+                            ),
+                    ),
+            )
+            .into_any_element()
     }
 
     fn menu_left(&mut self, _: &MenuLeft, _: &mut Window, cx: &mut Context<Self>) {
@@ -202,7 +330,10 @@ impl ZitShell {
         }
     }
     fn menu_escape(&mut self, _: &MenuEscape, window: &mut Window, cx: &mut Context<Self>) {
-        if self.about_open {
+        if self.open_project.is_some() {
+            self.open_project = None;
+            self.open_error = None;
+        } else if self.about_open {
             self.about_open = false;
         } else {
             self.menus.close();
@@ -574,5 +705,8 @@ impl Render for ZitShell {
                 )
             })
             .when(self.about_open, |root| root.child(self.about(cx)))
+            .when(self.open_project.is_some(), |root| {
+                root.child(self.open_dialog(cx))
+            })
     }
 }

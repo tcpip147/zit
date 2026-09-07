@@ -37,6 +37,39 @@ pub struct GlobalProjectStore(pub Entity<ProjectStore>);
 impl Global for GlobalProjectStore {}
 
 impl ProjectStore {
+    pub fn add_repository(
+        &mut self,
+        path: PathBuf,
+        display_name: String,
+        cx: &mut Context<Self>,
+    ) -> Result<ProjectId, String> {
+        let path = std::fs::canonicalize(&path).map_err(|_| "Folder does not exist.".to_owned())?;
+        if !path.join(".git").exists() {
+            return Err("The selected folder is not a Git repository.".to_owned());
+        }
+        if let Some(existing) = self
+            .projects
+            .iter()
+            .find(|p| std::fs::canonicalize(&p.repository_path).ok().as_ref() == Some(&path))
+        {
+            let id = existing.id.clone();
+            self.activate(&id, cx);
+            return Ok(id);
+        }
+        let metadata = self.loader.inspect(&path, Some(&display_name));
+        let id = metadata.id.clone();
+        let page = cx.new(|_| ProjectPage::new(metadata.clone(), self.loader.clone()));
+        self.projects.push(metadata);
+        self.pages.insert(id.clone(), page);
+        self.active = Some(id.clone());
+        self.persist();
+        cx.emit(ProjectStoreEvent::Restored {
+            project_ids: self.projects.iter().map(|p| p.id.clone()).collect(),
+            active: self.active.clone(),
+        });
+        cx.notify();
+        Ok(id)
+    }
     pub fn new(session_path: PathBuf) -> Self {
         Self::with_loader(session_path, Arc::new(GixRepositoryLoader))
     }
@@ -176,15 +209,21 @@ impl ProjectStore {
         repository_path: PathBuf,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(existing) = self.projects.get(index).cloned() else { return false; };
-        let mut metadata = self.loader.inspect(&repository_path, Some(&existing.display_name));
+        let Some(existing) = self.projects.get(index).cloned() else {
+            return false;
+        };
+        let mut metadata = self
+            .loader
+            .inspect(&repository_path, Some(&existing.display_name));
         metadata.display_name = existing.display_name;
         let new_id = metadata.id.clone();
         let page = cx.new(|_| ProjectPage::new(metadata.clone(), self.loader.clone()));
         self.pages.remove(&existing.id);
         self.pages.insert(new_id.clone(), page);
         self.projects[index] = metadata;
-        if self.active.as_ref() == Some(&existing.id) { self.active = Some(new_id); }
+        if self.active.as_ref() == Some(&existing.id) {
+            self.active = Some(new_id);
+        }
         self.persist();
         cx.notify();
         true

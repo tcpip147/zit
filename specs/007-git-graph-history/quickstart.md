@@ -17,7 +17,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
-Expected: exact linear/diverged/merge/multi-parent lanes; de-duplicated local/remote multi-root history; at most 100 tracks; correct HEAD, labels, body, author, time and ID; isolated bad refs; recoverable fatal errors; unchanged page states.
+Expected: exact topology; de-duplicated multi-root history; at most 100 tracks per page; bottom-triggered pages append older unique commits; repeated bottom events make one request; exhaustion stops requests; failed pages are retryable; existing states remain unchanged.
 
 ## Structural Validation
 
@@ -53,7 +53,8 @@ cargo run -p zit
 4. Scroll all returned tracks and switch projects; state remains independent.
 5. Verify existing empty and unavailable-repository presentations.
 6. Verify Author uses `name <email>`, Date uses the commit's timezone in `YYYY-MM-DD HH:MI`, and Hash shows the first eight object-ID characters.
+7. Scroll to the grid bottom repeatedly and verify automatic append, no duplicates, preserved position, retry on failure, and stable exhaustion.
 
 ## Performance Validation
 
-Load an automated fixture or local repository with at least 10,000 reachable commits. From load invocation to `ProjectData` completion, no more than 100 tracks should return within two seconds on a typical supported development machine.
+Load an automated fixture or local repository with at least 10,000 reachable commits. Each page returns no more than 100 tracks within two seconds, and repeated bottom events during one in-flight load create only one request.

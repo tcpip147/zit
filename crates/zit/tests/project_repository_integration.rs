@@ -215,3 +215,34 @@ fn limits_repository_history_to_one_hundred_tracks() {
     assert_eq!(data.commits.len(), 100);
     assert_eq!(data.commits[0].summary, "commit-104");
 }
+
+#[test]
+fn loads_the_next_history_page_from_an_offset() {
+    let directory = tempdir().unwrap();
+    let repository = gix::init(directory.path()).unwrap();
+    let tree = repository.write_object(gix::objs::Tree::empty()).unwrap();
+    let mut parent = None;
+    for index in 0..105 {
+        let time = format!("{} +0000", index + 1);
+        let signature = gix::actor::SignatureRef {
+            name: gix::bstr::BStr::new(b"Page Test"),
+            email: gix::bstr::BStr::new(b"page@example.com"),
+            time: &time,
+        };
+        parent = Some(repository.commit_as(
+            signature,
+            signature,
+            "HEAD",
+            format!("commit-{index}"),
+            tree,
+            parent,
+        ).unwrap());
+    }
+    let loader = GixRepositoryLoader;
+    let page = loader
+        .load_history_page(&loader.inspect(directory.path(), None), 100)
+        .unwrap();
+    assert_eq!(page.commits.len(), 5);
+    assert_eq!(page.commits[0].summary, "commit-4");
+    assert_eq!(page.commits[4].summary, "commit-0");
+}

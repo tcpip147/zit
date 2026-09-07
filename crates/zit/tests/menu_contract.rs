@@ -14,9 +14,9 @@ fn requested_menu_contract_is_exact_and_safe() {
     );
     assert_eq!(HELP_ITEMS.map(|item| item.label), ["About"]);
     assert!(
-        FILE_ITEMS[..3]
-            .iter()
-            .all(|item| !item.command.is_enabled())
+        !FILE_ITEMS[0].command.is_enabled()
+            && FILE_ITEMS[1].command.is_enabled()
+            && !FILE_ITEMS[2].command.is_enabled()
     );
 
     let mut state = MenuState::default();

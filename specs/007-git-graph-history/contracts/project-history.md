@@ -18,6 +18,11 @@ The builder MUST NOT perform repository I/O, invoke GPUI, mutate published track
 
 ## History Presentation
 
+The History grid requests the next page at its bottom prefetch threshold, appends only new
+commit identities, preserves scroll position, and stops after exhaustion. A repository/filter
+or project change starts a fresh session. Repeated bottom events while loading are coalesced;
+an additional-page failure retains existing rows and exposes retry.
+
 The retained DataGrid column order remains Graph, Commit, Author, Date, Hash. The Graph cell MUST render the marker, all top-to-center inputs, all center-to-bottom outputs, and distinguish diagonal lane transitions. HEAD and branch context must remain associated with the correct row. Drawing remains clipped, supports arbitrary lane/color indices, and cycles palette lookup safely.
 
 ## Compatibility
@@ -38,3 +43,6 @@ The retained DataGrid column order remains Graph, Commit, Author, Date, Hash. Th
 | No branches | empty success | no tracks | existing empty state |
 | Invalid one ref | valid roots load | valid topology | no false global failure |
 | Fatal commit read | repository error | no partial publication | retry state |
+| More history at bottom | continuation page | older unique tracks appended | position preserved |
+| Additional page failure | existing rows retained | no duplicates | load-more retry |
+| Exhausted history | no continuation | no further traversal | stable bottom |

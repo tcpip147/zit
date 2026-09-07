@@ -282,6 +282,28 @@ Repository implementation in `project/repository.rs` stays serialized. Test fixt
 
 ## Notes
 
+## Phase 9: User Story 5 - Load More History at the Grid Bottom (Priority: P1)
+
+**Goal**: Automatically append older commit pages when the History grid reaches its bottom while preventing duplicate requests, duplicate rows, scroll jumps, and endless loads.
+
+**Independent Test**: Use a repository larger than one page, trigger repeated bottom events, and verify one in-flight request, ordered unique appends, retryable failure, stable exhaustion, and preserved scroll position.
+
+### Tests for User Story 5
+
+- [x] T067 [P] [US5] Add repository continuation fixtures for multi-page history, exact page boundaries, short final pages, and overlapping commit identities in `crates/zit/tests/project_repository_integration.rs`
+- [ ] T068 [P] [US5] Add page contract coverage for bottom-threshold triggering, duplicate bottom events, append ordering, scroll-position preservation, retry, and exhaustion in `crates/zit/tests/project_page_contract.rs`
+
+### Implementation for User Story 5
+
+- [ ] T069 [US5] Define repository/filter-scoped history query, opaque page cursor, and initial/additional/exhausted/error load state in `crates/zit/src/project/model.rs`
+- [x] T070 [US5] Extend gix history traversal to return a continuation page of at most 100 candidate commits without restarting from branch tips in `crates/zit/src/project/repository.rs`
+- [x] T071 [US5] Deduplicate appended commit identities, preserve newest-first ordering, and rebuild graph lanes consistently across the combined visible history in `crates/zit/src/project/repository.rs`
+- [ ] T072 [US5] Add serialized additional-page loading, retry handling, exhaustion detection, and filter/project session reset in `crates/zit/src/project/store.rs`
+- [x] T073 [US5] Detect the History grid bottom prefetch threshold, request the next page once, append rows without replacing the existing grid entity, and preserve scroll position in `crates/zit/src/project/page.rs`
+- [x] T074 [US5] Render additional-page loading, retryable failure, and exhausted states without hiding existing History rows in `crates/zit/src/project/page.rs`
+
+**Checkpoint**: Scrolling to the History grid bottom repeatedly appends every available page exactly once and stops cleanly at repository exhaustion.
+
 - [x] T046 Add local, remote, and current-branch reachability metadata during gix history loading.
 - [x] T047 Add the History branch selector and remote-branch checkbox toolbar, filter rows, and rebuild graph lanes after filter changes.
 - [x] T048 Track remote branch labels separately and hide them from Description cells while remote branches are disabled.

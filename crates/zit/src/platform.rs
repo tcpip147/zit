@@ -65,10 +65,7 @@ pub enum ShellCommand {
 
 impl ShellCommand {
     pub const fn is_enabled(self) -> bool {
-        !matches!(
-            self,
-            Self::NewRepository | Self::OpenRepository | Self::CloneRepository
-        )
+        !matches!(self, Self::NewRepository | Self::CloneRepository)
     }
 }
 
@@ -135,7 +132,7 @@ mod tests {
     #[test]
     fn repository_commands_are_disabled() {
         assert!(!ShellCommand::NewRepository.is_enabled());
-        assert!(!ShellCommand::OpenRepository.is_enabled());
+        assert!(ShellCommand::OpenRepository.is_enabled());
         assert!(!ShellCommand::CloneRepository.is_enabled());
         assert!(ShellCommand::ExitApplication.is_enabled());
     }

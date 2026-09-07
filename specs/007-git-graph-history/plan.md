@@ -10,6 +10,11 @@ Extend the existing project repository model and History page with repository-wi
 
 ## Technical Context
 
+This plan also covers incremental History browsing: the initial and subsequent batches are
+repository/filter-scoped pages of at most 100 tracks. Reaching the grid bottom starts one
+serialized continuation request, appends unique older commits, preserves scroll position, and
+exposes retryable failure and exhausted states.
+
 **Language/Version**: Rust 1.97.1, edition 2024
 
 **Primary Dependencies**: `gix` 0.87.1; Git-sourced `gpui` 0.2.2; local `widget` DataGrid
@@ -26,7 +31,7 @@ Extend the existing project repository model and History page with repository-wi
 
 **Constraints**: No Git CLI; use gix; preserve supplied algorithm/data concepts; no GPUI types in domain models; no repository-data panics; preserve History states; keep diff gutter fixed during horizontal scrolling; avoid retaining frame-scoped GPUI elements across frames
 
-**Scale/Scope**: Local and remote branch roots, 100 returned tracks, arbitrary parents and active lanes, independent project pages
+**Scale/Scope**: Local and remote branch roots, pages of up to 100 tracks, arbitrary parents and active lanes, independent project/filter sessions
 
 ## Constitution Check
 
@@ -119,6 +124,7 @@ See [contracts/project-history.md](contracts/project-history.md). This is an int
 7. Extract author and committer independently from gix, preserve both in commit summaries, expose committer identity in selected commit details, and render message content without a redundant label.
 8. Harden shared project-page scrolling and add topology, repository, page, failure, structural, and performance coverage.
 9. Add measured-bounds, window-captured resizing to the three History split boundaries with centered 8px hit areas; derive each new boundary from its start position plus mouse movement delta.
+10. Add pagination contract, repository continuation, page-state, deduplication, bottom-trigger, retry, exhaustion, and scroll-position coverage.
 
 ### Validation Strategy
 
@@ -129,5 +135,8 @@ See [contracts/project-history.md](contracts/project-history.md). This is an int
 - Quality gates: format check, strict workspace clippy, and full workspace tests.
 
 ## Complexity Tracking
+
+Pagination adds no new crate or persistence layer; its cursor and load state remain scoped to
+the existing History page/repository session.
 
 No constitution violations or additional project structures are introduced.

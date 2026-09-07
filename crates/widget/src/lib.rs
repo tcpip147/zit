@@ -6,10 +6,10 @@
 #[path = "data-grid.rs"]
 mod data_grid;
 mod diff_editor;
+mod scroll_container;
 mod tab_bar;
 mod text_editor;
 mod text_input;
-mod scroll_container;
 mod theme;
 
 pub use data_grid::{
@@ -32,9 +32,9 @@ pub use text_editor::{
     init_text_editor,
 };
 
+pub use scroll_container::ScrollContainer;
 pub use text_input::{
     Backspace, Copy, Cut, Delete, End, Left, Paste, Redo, Right, SelectAll, SelectEnd, SelectLeft,
     SelectRight, SelectStart, SelectWordLeft, SelectWordRight, Start, TextInput, TextInputChange,
     Undo, WordLeft, WordRight, init,
 };
-pub use scroll_container::ScrollContainer;

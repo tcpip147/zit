@@ -15,7 +15,11 @@ fn reports_unstaged_and_staged_files_separately() {
     let files = loader.load_working_tree_files(&metadata).unwrap();
     assert_eq!(files[0].path, "file.txt");
     assert!(files[0].staged);
-    assert!(loader.load_working_tree_diff(&metadata, "file.txt", true).is_ok());
+    assert!(
+        loader
+            .load_working_tree_diff(&metadata, "file.txt", true)
+            .is_ok()
+    );
 }
 
 #[test]

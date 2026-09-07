@@ -53,6 +53,16 @@ Inputs describe top-to-marker connections; outputs describe marker-to-bottom con
 
 ## Relationships
 
+## Incremental History State
+
+- **HistoryQuery**: repository identity plus branch and remote filters; changes start a fresh session.
+- **HistoryPageCursor**: opaque continuation boundary for the next older page.
+- **HistoryLoadState**: loading, ready, retryable failure, or exhausted; at most one request is active.
+
+Pagination invariants: each page has at most 100 candidates; appended pages remain newest-first
+and deduplicated by full object ID; failed pages retain prior rows; exhausted sessions cannot
+request again.
+
 ```text
 ProjectData
 └── commits: Vec<CommitSummary / graph track>

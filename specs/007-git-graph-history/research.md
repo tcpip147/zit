@@ -10,11 +10,19 @@
 
 ## Ordering and Limit
 
-**Decision**: Use commit-time ordering newest first and stop after 100 traversed entries.
+**Decision**: Use commit-time ordering newest first, return at most 100 tracks per page, and continue traversal from an explicit page boundary for bottom-triggered loading.
 
-**Rationale**: Reproduces `ByCommitTime(NewestFirst)` and `take(100)` while bounding metadata and layout work.
+**Rationale**: Preserves the bounded batch behavior while allowing users to browse older history. A continuation boundary avoids repeatedly returning the same prefix.
 
-**Alternatives considered**: Topological-only order differs from the reference; unbounded loading is not bounded by UI virtualization; pagination changes the requested contract.
+**Alternatives considered**: Topological-only order differs from the reference; unbounded loading is not bounded by UI virtualization; a separate load button adds friction; restarting from branch tips duplicates page work.
+
+## Bottom-Triggered Loading
+
+**Decision**: Treat the initial result and each subsequent result as a page owned by the repository/filter session. Trigger one additional request near the grid bottom, serialize requests, deduplicate by commit identity, and mark the session exhausted when no new rows remain or a short page is returned.
+
+**Rationale**: The grid can append older commits without losing project isolation or scroll position. Explicit loading and exhaustion state makes repeated bottom events idempotent and gives failures a retry path.
+
+**Alternatives considered**: Loading the entire repository at once violates the bounded-load goal; replacing the visible vector causes scroll jumps; concurrent requests risk duplicates and out-of-order graph state.
 
 ## Algorithm Boundary
 
