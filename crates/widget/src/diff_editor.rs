@@ -1,4 +1,4 @@
-use gpui::{AnyElement, Context, CursorStyle, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Render, ScrollHandle, ScrollWheelEvent, SharedString, Window, canvas, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, CursorStyle, InteractiveElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Render, ScrollHandle, ScrollWheelEvent, SharedString, StatefulInteractiveElement, Window, canvas, div, prelude::*, px, rgb};
 
 const ROW_HEIGHT: f32 = 20.;
 const OVERSCAN_ROWS: usize = 12;
@@ -13,6 +13,7 @@ pub struct DiffEditor {
     content_width: f32,
     gutter_width: f32,
     drag: Option<(bool, f32, f32)>,
+    track_hovered: Option<bool>,
 }
 
 #[derive(Clone, Copy)]
@@ -41,6 +42,7 @@ impl DiffEditor {
             content_width: 400.,
             gutter_width: 24.,
             drag: None,
+            track_hovered: None,
         }
     }
 
@@ -263,6 +265,7 @@ impl DiffEditor {
             .inset_0()
             .child(
                 div()
+                    .id("diff-vertical-scroll-track")
                     .absolute()
                     .right(px(2.))
                     .top(px(2.))
@@ -270,16 +273,19 @@ impl DiffEditor {
                     .w(px(6.))
                     .rounded(px(3.))
                     .bg(rgb(0xe2e8f0))
+                    .on_hover(cx.listener(Self::hover_vertical_track))
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::jump_vertical))
                     .when(max.y > px(0.), |track| {
                         track.child(
                             div()
+                                .id("diff-vertical-scroll-thumb")
                                 .absolute()
                                 .top(vertical_top)
                                 .w_full()
                                 .h(vertical_thumb)
                                 .rounded(px(3.))
-                                .bg(rgb(0x94a3b8))
+                                .bg(if self.track_hovered == Some(true) || self.drag.is_some_and(|(vertical, _, _)| vertical) { rgb(0x64748b) } else { rgb(0x94a3b8) })
+                                .hover(|style| style.bg(rgb(0x64748b)))
                                 .cursor(CursorStyle::PointingHand)
                                 .on_mouse_down(MouseButton::Left, cx.listener(Self::start_vertical_drag))
                                 .on_mouse_move(cx.listener(Self::drag))
@@ -290,6 +296,7 @@ impl DiffEditor {
             )
             .child(
                 div()
+                    .id("diff-horizontal-scroll-track")
                     .absolute()
                     .left(px(self.gutter_width * 2. + 2.))
                     .right(px(10.))
@@ -297,16 +304,19 @@ impl DiffEditor {
                     .h(px(6.))
                     .rounded(px(3.))
                     .bg(rgb(0xe2e8f0))
+                    .on_hover(cx.listener(Self::hover_horizontal_track))
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::jump_horizontal))
                     .when(horizontal_max.x > px(0.), |track| {
                         track.child(
                             div()
+                                .id("diff-horizontal-scroll-thumb")
                                 .absolute()
                                 .left(horizontal_top)
                                 .h_full()
                                 .w(horizontal_thumb)
                                 .rounded(px(3.))
-                                .bg(rgb(0x94a3b8))
+                                .bg(if self.track_hovered == Some(false) || self.drag.is_some_and(|(vertical, _, _)| !vertical) { rgb(0x64748b) } else { rgb(0x94a3b8) })
+                                .hover(|style| style.bg(rgb(0x64748b)))
                                 .cursor(CursorStyle::PointingHand)
                                 .on_mouse_down(MouseButton::Left, cx.listener(Self::start_horizontal_drag))
                                 .on_mouse_move(cx.listener(Self::drag))
@@ -390,6 +400,17 @@ impl DiffEditor {
     fn stop_drag(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
         self.drag = None;
     }
+
+    fn hover_vertical_track(&mut self, hovered: &bool, _: &mut Window, cx: &mut Context<Self>) {
+        self.track_hovered = if *hovered { Some(true) } else { None };
+        cx.notify();
+    }
+
+    fn hover_horizontal_track(&mut self, hovered: &bool, _: &mut Window, cx: &mut Context<Self>) {
+        self.track_hovered = if *hovered { Some(false) } else { None };
+        cx.notify();
+    }
+
 
     fn capture(&self, cx: &mut Context<Self>) -> AnyElement {
         let editor = cx.entity().downgrade();
