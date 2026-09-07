@@ -357,7 +357,7 @@ impl DiffEditor {
         if max <= px(0.) { return; }
         let track = (bounds.size.width - px(12.)).max(px(1.));
         let thumb = (track * (bounds.size.width / (bounds.size.width + max))).max(px(48.)).min(track);
-        let position = (event.position.x - bounds.origin.x - px(self.gutter_width * 2. + 2.) - thumb / 2.)
+        let position = (event.position.x - bounds.origin.x - px(2.) - thumb / 2.)
             .clamp(px(0.), (track - thumb).max(px(0.)));
         let offset = -(position / (track - thumb).max(px(1.)) * max);
         self.horizontal_scroll.set_offset(gpui::point(offset, self.horizontal_scroll.offset().y));
