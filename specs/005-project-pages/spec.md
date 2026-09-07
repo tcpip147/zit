@@ -147,12 +147,20 @@ As a user, I can move between the main areas of each project and access common r
 
 ## Assumptions
 
+## As-Built Alignment
+
+- Project History owns selected commit state, changed-file loading, lower-pane layout, and DiffEditor lifecycle while reusable widgets remain repository-agnostic.
+- Selecting a changed file loads its first-parent diff asynchronously; the view resets stale diff scroll state when a new file is displayed.
+- History filters, graph rows, commit details, changed-file paths, and diff content remain isolated per retained project page.
+
+> File Status is specified independently in [009-file-status](../009-file-status/spec.md). Project Pages only owns the navigation slot and retained-page boundary.
+
 - The ordered list of open projects and the active project are preserved between normal application sessions.
 - Lightweight metadata may be inspected during startup, but commit history and similarly expensive repository data are heavyweight and deferred.
 - The first restored project becomes active when the previously active project cannot be restored; activating it may therefore start exactly one lazy load during startup.
 - Heavyweight data is cached for the current application session. Detecting and refreshing external repository changes is outside this feature's scope.
 - Opening new repositories through a picker or recent-project list is outside this feature's scope; this feature defines the model, restoration, page lifecycle, and tab behavior once projects are open.
-- File Status and Search provide stable project-navigation destinations in this feature; populating those destinations with working-tree or search results is outside its scope.
+- File Status and Search provide stable project-navigation destinations in this feature; File Status contents and repository status mutations are specified in [009-file-status](../009-file-status/spec.md).
 - Toolbar controls establish project-scoped action requests and their labels. The commit, synchronization, branch-management, terminal, explorer, and settings workflows themselves are outside this feature's scope.
 - A closed project's in-flight work may finish internally, but its result is discarded and cannot recreate the project or update another page.
 - Authentication, remote hosting services, network fetching, and repository mutation are outside this feature's scope.

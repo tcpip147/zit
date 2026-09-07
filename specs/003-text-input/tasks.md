@@ -48,8 +48,8 @@ description: "Completed implementation record for the reusable TextInput"
 ## Phase 8: Validation
 
 - [X] T019 Run workspace formatting, lint, compilation, and tests and update `specs/003-text-input/implementation-validation.md`
+- [ ] T100 Reconcile committed-value versus IME composition behavior and multi-instance evidence in `specs/003-text-input/implementation-validation.md`
 
 ## Dependencies and Delivery
 
 Foundation precedes all stories. US1 and US2 form the MVP. Clipboard and history depend on mutation primitives; IME depends on range conversion and snapshots. Theme and example work can proceed independently of editing logic.
-

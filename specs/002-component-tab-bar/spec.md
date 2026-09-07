@@ -97,6 +97,11 @@ As a user, I can reach tabs beyond the visible width through the row's horizonta
 
 ## Assumptions
 
+## As-Built Alignment
+
+- Tab state is retained per entity and project pages are supplied by the host rather than created by the widget.
+- Overflow scrolling and reveal behavior are widget-owned; repository loading and project lifecycle remain outside the tab bar.
+
 - Pointer selection and close activation are in scope. Dedicated keyboard navigation bindings and assistive-technology click handlers are not present in the synchronized component scope.
 - The host is responsible for supplying valid non-empty custom asset paths; automatic fallback applies only to an empty icon reference.
 - Horizontal scrolling uses the platform's supported horizontal scrolling behavior. Explicit conversion of vertical wheel input into horizontal movement is outside the synchronized scope.

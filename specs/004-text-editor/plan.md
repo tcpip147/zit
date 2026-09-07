@@ -54,4 +54,8 @@ Logical lines are shaped and painted in a clipped vertically scrollable region. 
 
 ## Validation
 
+### Current Implementation Alignment
+
+Validate the reusable editor independently from DiffEditor so editable text behavior, keyboard bindings, selection, scrolling, and IME handling cannot regress during diff-view work.
+
 Automated evidence covers line-ending and Unicode conversion helpers, multi-line construction and configuration, read-only replacement rejection, insertion and selection replacement, and cursor reveal in a fixed viewport. Broader navigation, clipboard, history, IME, pointer, and scroll behavior exists in source but needs additional focused regression tests in a future feature if its scope expands.

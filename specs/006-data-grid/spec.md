@@ -146,6 +146,12 @@ As a Zit maintainer, I can replace the project page's private history-table impl
 
 ## Assumptions
 
+## As-Built Alignment
+
+- Row selection is host-observable through the optional row mouse-down callback and is rendered with theme-controlled selected-row styling.
+- Column resizing stores proportional widths so header and body remain aligned after viewport changes.
+- The custom scrollbar supports window-level drag continuation and transient visibility per grid instance.
+
 - The first consumer is the project History section from `005-project-pages`, but the widget is designed for unrelated structured row data.
 - Rows have a uniform configured height; variable-height rows are outside scope.
 - The initial grid uses a single fixed header and vertical scrolling only.

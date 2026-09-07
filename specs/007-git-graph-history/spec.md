@@ -6,6 +6,8 @@
 
 **Status**: Draft
 
+> DiffEditor requirements were extracted into [008-diff-editor](../008-diff-editor/spec.md). This feature now owns the reusable diff widget; 007 only consumes the selected-file/diff loading boundary.
+
 **Input**: User description: "Add feature 007 to provide Git graph history. It must use gix, and its algorithm and data structures must match the supplied code while being adapted appropriately for this project."
 
 ## User Scenarios & Testing *(mandatory)*
@@ -74,6 +76,25 @@ As a project user, I see the generated topology in the existing History grid whi
 2. **Given** history is empty or loading fails, **When** History is displayed, **Then** the existing empty or retry presentation remains responsible for feedback.
 3. **Given** two project pages are open, **When** their histories are loaded and scrolled independently, **Then** graph data and view state do not leak between projects.
 
+### User Story 5 - Inspect File Diffs in a Diff Editor (Priority: P2)
+
+As a user selecting a changed file in a commit, I can inspect a readable, navigable diff with before and after line numbers while keeping the line-number gutter fixed during horizontal scrolling.
+
+**Why this priority**: File history is only useful when the selected change can be read and navigated efficiently.
+
+**Independent Test**: Select changed text files containing additions, deletions, multiple hunks, long lines, and enough content to overflow both axes; verify parsed rows, line numbers, fixed gutter behavior, scrolling, thumb interaction, and file switching.
+
+**Acceptance Scenarios**:
+
+1. **Given** a unified diff with additions, deletions, context lines, and multiple hunks, **When** it is displayed, **Then** diff headers and prefixes are hidden, content rows are color-coded, and hunk boundaries are visually separated without a leading separator.
+2. **Given** a diff with before and after line numbers, **When** it is displayed, **Then** before and after numbers are shown in separate left-aligned columns with dynamically sized gutters, only the after column has a right border, and the final row remains visible above the horizontal scrollbar.
+3. **Given** a diff containing long lines, **When** the user horizontally scrolls, **Then** only the code pane moves and the line-number gutter remains visible.
+4. **Given** a diff taller than the viewport, **When** the user uses the wheel, drags either vertical thumb, or clicks empty vertical track space, **Then** the gutter and code panes remain vertically synchronized and scrolling is clamped to valid bounds.
+5. **Given** a diff wider than the viewport, **When** the user drags the horizontal thumb or clicks empty horizontal track space, **Then** the code pane moves to the requested position and the thumb movement matches the actual content range.
+6. **Given** the pointer enters a scrollbar track or thumb, **When** the pointer is over the relevant axis, **Then** that axis's thumb changes to the established hover color without changing the other axis's thumb.
+7. **Given** the user selects another changed file, **When** its diff finishes loading, **Then** both panes reset to the top-left and the new content is rendered immediately without stale indices or scroll positions.
+8. **Given** a large diff, **When** the editor renders or the window moves, **Then** only rows near the visible vertical range are materialized and the editor remains responsive.
+
 ### Edge Cases
 
 - Several local and remote branch names point to the same commit.
@@ -127,8 +148,28 @@ As a project user, I see the generated topology in the existing History grid whi
 - **FR-034**: `Current branch` MUST show only commits reachable from the resolved HEAD, while `All branches` MUST show commits reachable from local branches and, when enabled, remote branches.
 - **FR-035**: Clearing `Remote branches` MUST exclude commits reachable only from remote branch tips, remove remote branch labels such as `origin/...` from Description cells, and rebuild graph lanes for the remaining displayed rows.
 - **FR-036**: The ready History page MUST be divided vertically into equal upper and lower panes; the existing filter toolbar and grid MUST occupy the upper pane, while the lower pane MUST remain an empty reserved container separated by a visible boundary.
-- **FR-037**: The lower History pane MUST be divided into equal left and right panels; selecting a grid row MUST show that commit's full Hash, Parent Hash values when present, Author, committer-time Date, Committer, and complete Message in the left panel, while the right panel remains reserved for future content.
+- **FR-037**: The lower History pane MUST be divided into equal left and right panels; selecting a grid row MUST show that commit's full Hash, Parent Hash values when present, Author, committer-time Date, Committer, and complete message content in the left panel, while the right panel remains reserved for future content.
 - **FR-038**: The lower-left History panel MUST be divided into equal upper and lower sections; the upper section MUST retain the selected commit metadata, while the lower section asynchronously lists paths changed between the selected commit and its first parent using gix, or the empty tree for a root commit.
+- **FR-038a**: The History changed-file list panel MUST have zero outer padding so file rows align directly with the panel boundaries; row-level padding MAY remain for readable labels and hit targets.
+- **FR-048**: Repository history loading MUST extract the committer identity separately from the author identity using gix and preserve committer name and email on every returned commit record.
+- **FR-049**: The selected commit details view MUST display the committer as `name <email>` independently from the author field.
+- **FR-050**: A commit whose author and committer differ MUST retain both identities without substitution, merging, or loss of either value.
+- **FR-051**: The complete selected commit message MUST be displayed without a separate `Message` label; the message title and body remain visible as content.
+
+### Diff Editor Requirements
+
+- **FR-039**: The selected changed-file panel MUST parse unified diff text into context, addition, deletion, and hunk-boundary rows rather than displaying raw diff headers or prefixes.
+- **FR-040**: Diff rows MUST calculate independent before and after line numbers from each hunk range; additions MUST advance only after numbering, deletions only before numbering, and context rows both.
+- **FR-041**: The diff editor MUST render before and after line-number gutters as separate left-aligned columns with width based on the largest displayed line number; only the after gutter MUST have a right border.
+- **FR-042**: The diff editor MUST keep the line-number gutter fixed while horizontal scrolling is applied only to the code pane.
+- **FR-043**: The diff editor MUST provide vertical and horizontal scrolling, visible tracks and thumbs, thumb dragging, track-page clicking centered on the thumb, hover/drag colors, and window-level drag continuation outside the thumb.
+- **FR-044**: Diff scrollbar movement MUST clamp to the valid content range and use the actual viewport, track, thumb, and content dimensions for position and scale calculations.
+- **FR-045**: Selecting a new file MUST reset both vertical and horizontal offsets before rendering the new diff and MUST prevent stale virtualization indices from indexing beyond the new row collection.
+- **FR-046**: Diff virtualization MUST render only visible rows plus a bounded overscan range while preserving total scrollable content height and bottom clearance for the horizontal scrollbar.
+- **FR-047**: Shared scroll-container behavior MUST support vertical thumb dragging, track-page clicking, hover/drag thumb colors, and window-level drag continuation without retaining invalid frame-scoped UI elements.
+- **FR-052**: History MUST provide an 8px centered resize hit area for the Grid/lower-pane, lower-pane left/right, and lower-left metadata/files boundaries without consuming layout space.
+- **FR-053**: History resize MUST measure the active container bounds and convert pointer movement from the drag start position without window-size correction constants or arbitrary scale factors.
+- **FR-054**: History resize MUST store the boundary start position and mouse start position, then calculate the new boundary as `boundary_start + (mouse_position - mouse_start)`.
 
 ### Key Entities
 
@@ -161,4 +202,6 @@ As a project user, I see the generated topology in the existing History grid whi
 - Shortened branch names follow the repository backend's established reference-shortening behavior; identical display names from different namespaces remain separate labels if both references are present.
 - Graph colors are stable numeric identities chosen per history load; visual color values belong to the presentation layer.
 - Existing project repository discovery, background loading, error presentation, DataGrid virtualization, and History page ownership are reused.
+- The diff editor uses fixed-height rows, a synchronized vertical gutter/code layout, and an independent horizontal code-pane scroll range.
+- Scrollbar colors follow the existing DataGrid convention: default thumb `#94a3b8`, hover/drag thumb `#64748b`, and track `#e2e8f0`.
 - Commit metadata exposed by this feature follows the supplied code: commit time, full message title and optional body, author name, author email, and complete object identity.

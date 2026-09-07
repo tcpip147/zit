@@ -38,8 +38,8 @@ description: "Completed implementation record for the reusable tab bar"
 ## Phase 6: Validation
 
 - [X] T015 Run workspace formatting, lint, compilation, and tests and record available evidence in `specs/002-component-tab-bar/validation/`
+- [ ] T100 Reconcile retained page identity, close veto, overflow reveal, fallback icon, and multi-instance evidence in `specs/002-component-tab-bar/validation/`
 
 ## Dependencies and Delivery
 
 Foundation precedes all stories. US1 is the MVP; US2 builds on stable selection, and US3 builds on the rendered row and scroll handle. Asset and example work can proceed independently of state-model work.
-

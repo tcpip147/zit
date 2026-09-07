@@ -97,6 +97,12 @@ pub struct ProjectData {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkingTreeFile {
+    pub path: String,
+    pub staged: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProjectLoadState {
     NotLoaded,
     Loading { generation: u64 },

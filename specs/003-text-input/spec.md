@@ -330,6 +330,11 @@ As a user, I can enter text using an input method editor (IME) so that I can use
 
 ## Assumptions
 
+## As-Built Alignment
+
+- The widget exposes its command bindings and initialization through the reusable widget crate while preserving host-observable committed-value events.
+- Composition, selection, cursor, and clipboard behavior are rendered in the same control rather than delegated to a project-specific page.
+
 - The initial feature is a general-purpose, single-line, plain-text editor; rich text, validation,
   masking, password concealment, and multi-line editing are outside its scope.
 - "Standard" shortcuts and modifier keys follow the conventions of the host desktop platform.

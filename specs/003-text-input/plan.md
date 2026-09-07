@@ -53,4 +53,8 @@ A custom element shapes one line, paints selection, marked text, and a display-p
 
 ## Validation
 
+### Current Implementation Alignment
+
+Validate committed-value events separately from provisional IME composition, including multi-instance focus, selection, cursor, clipboard, and undo/redo behavior.
+
 Focused suites cover foundation, editing, navigation, pointer focus, clipboard, history, IME, blinking, rendering constraints, Unicode regression, and independent configuration. The interactive example exercises multiple instances.

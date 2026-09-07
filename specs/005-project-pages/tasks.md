@@ -49,6 +49,8 @@ description: "Completed implementation record for project pages"
 - [X] T024 [P] Add empty-store development repository seeding helpers and their contract test in `crates/zit/src/project/store.rs` and `crates/zit/tests/project_store_contract.rs`
 - [X] T025 Connect current development bootstrap and optional sample repository replacement in `crates/zit/src/main.rs`
 - [X] T026 Run formatting, lint, workspace tests, and constitutional dependency checks and record readiness in `specs/005-project-pages/checklists/requirements.md`
+- [ ] T100 Add History lower-pane, changed-file loading, DiffEditor reset, and per-project isolation acceptance evidence in `specs/005-project-pages/checklists/requirements.md`
+- [X] T101 [US4] Retain the File Status navigation slot and per-page ownership boundary in `crates/zit/src/project/page.rs`
 
 ## Dependencies and Delivery
 

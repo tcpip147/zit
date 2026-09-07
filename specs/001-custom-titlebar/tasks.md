@@ -36,8 +36,8 @@ description: "Completed implementation record for custom application chrome"
 ## Phase 5: Validation
 
 - [X] T016 Run workspace build, formatting, lint, and test gates and record native validation gaps in `specs/001-custom-titlebar/validation/`
+- [ ] T100 Reconcile shell, platform command, asset, reopen, and startup-error acceptance evidence in `specs/001-custom-titlebar/validation/`
 
 ## Dependencies and Delivery
 
 Foundation precedes US1. US2 and US3 depend on the application shell but are otherwise independently testable. The MVP is US1; the synchronized feature includes all three stories. Platform-native visual certification remains an external validation activity and is not represented as an incomplete source task.
-

@@ -62,6 +62,10 @@ crates/zit/
 
 ## Validation
 
+### Current Implementation Alignment
+
+Validate `main.rs`, `shell.rs`, `platform.rs`, `titlebar.rs`, `assets.rs`, and `startup_error.rs` together; confirm platform ordering, accessible command routing, reopen behavior, and simulated startup failure.
+
 - Deterministic command and menu contracts run with `cargo test --workspace`.
 - `chrome_probe` supports interactive host validation.
 - Exact native appearance, display-scale matrices, and assistive-technology runs remain release validation, not completed implementation claims.

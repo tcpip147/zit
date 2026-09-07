@@ -6,7 +6,7 @@
 
 ## Summary
 
-Extend the existing project repository model and `GixRepositoryLoader` so History is collected from all readable local and remote branch tips, limited to 100 commits in newest-first commit-time order, and enriched with the supplied lane marker, incoming/output edge, color, HEAD, branch-label, and full-message data. Preserve the supplied sequential lane algorithm while adapting public object identities to the project's string-based model and replacing unchecked lookups with safe invariants. Render topology in the existing DataGrid Graph cell using GPUI-native drawing without changing current page-loading behavior.
+Extend the existing project repository model and History page with repository-wide Git graph data and a complete read-only DiffEditor. Preserve the supplied sequential lane algorithm while adapting public object identities to the project's string-based model. Render graph topology in the existing DataGrid and render selected file diffs with parsed rows, fixed line-number gutters, synchronized vertical scrolling, code-only horizontal scrolling, interactive scrollbars, and visible-row virtualization.
 
 ## Technical Context
 
@@ -22,9 +22,9 @@ Extend the existing project repository model and `GixRepositoryLoader` so Histor
 
 **Project Type**: Rust desktop application in a Cargo workspace
 
-**Performance Goals**: At most 100 tracks within two seconds for 10,000 reachable local commits; visible-row-only rendering
+**Performance Goals**: At most 100 tracks within two seconds for 10,000 reachable local commits; graph and diff views render only visible rows plus bounded overscan
 
-**Constraints**: No Git CLI; use gix; preserve supplied algorithm/data concepts; no GPUI types in domain models; no repository-data panics; preserve History states
+**Constraints**: No Git CLI; use gix; preserve supplied algorithm/data concepts; no GPUI types in domain models; no repository-data panics; preserve History states; keep diff gutter fixed during horizontal scrolling; avoid retaining frame-scoped GPUI elements across frames
 
 **Scale/Scope**: Local and remote branch roots, 100 returned tracks, arbitrary parents and active lanes, independent project pages
 
@@ -81,6 +81,8 @@ crates/zit/
     └── project_page_contract.rs
 
 crates/widget/src/data-grid.rs      # existing custom-cell host; unchanged domain boundary
+crates/widget/src/diff_editor.rs    # parsed diff rows, split gutter/code panes, virtualization, scrollbars
+crates/widget/src/scroll_container.rs # shared vertical scrolling and scrollbar interactions
 ```
 
 **Structure Decision**: Extend the existing `zit::project` domain rather than copying the reference project's separate `crates/git` layout. This preserves the current loader, project data, retained page, background task, and DataGrid boundaries while keeping the widget Git-independent.
@@ -113,7 +115,10 @@ See [contracts/project-history.md](contracts/project-history.md). This is an int
 3. Replace HEAD-only traversal with bounded, time-sorted local-plus-remote multi-tip traversal.
 4. Populate full metadata and translate all fatal repository failures into `RepositoryError`.
 5. Replace the placeholder merge glyph with a graph cell driven by marker and edges.
-6. Add topology, repository, page, failure, structural, and performance coverage.
+6. Keep selected-file loading and zero-padded changed-file list layout as project-page integration boundaries; implement the reusable DiffEditor under feature 008.
+7. Extract author and committer independently from gix, preserve both in commit summaries, expose committer identity in selected commit details, and render message content without a redundant label.
+8. Harden shared project-page scrolling and add topology, repository, page, failure, structural, and performance coverage.
+9. Add measured-bounds, window-captured resizing to the three History split boundaries with centered 8px hit areas; derive each new boundary from its start position plus mouse movement delta.
 
 ### Validation Strategy
 

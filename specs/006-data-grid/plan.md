@@ -107,5 +107,8 @@ The outer grid uses the table role, the header uses row plus column-header roles
 
 ## Complexity Tracking
 
-No constitutional violations require justification. The path attribute is required solely to honor the explicitly requested hyphenated filename.
+### Current Implementation Alignment
 
+The implemented grid also requires contract coverage for row selection callbacks, proportional column resizing, and window-level scrollbar drag capture in addition to virtualization and fixed-header behavior.
+
+No constitutional violations require justification. The path attribute is required solely to honor the explicitly requested hyphenated filename.

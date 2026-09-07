@@ -157,10 +157,14 @@ As an application developer, I can configure value, placeholder, enabled, read-o
 
 ## Assumptions
 
+## As-Built Alignment
+
+- TextEditor remains a reusable editable control; the read-only Git diff view is a separate DiffEditor and does not change TextEditor editing semantics.
+- Keyboard bindings, scrolling, selection, undo/redo, and IME behavior remain owned by the reusable widget implementation.
+
 - The synchronized implementation lays out logical lines without soft-wrapping them. The wrapping preference is publicly configurable, but visual soft wrapping and wrapped-line navigation are outside the current feature scope.
 - Vertical movement preserves a logical byte column rather than a measured visual x-position; Page Up and Page Down move at most ten logical lines rather than one measured viewport height.
 - Conventional word-selection pointer gestures, pointer-drag autoscroll, horizontal wheel scrolling, and optimized rendering for million-character documents are outside the synchronized scope.
 - Horizontal content may be shifted to reveal the cursor, but a user-operated horizontal scrollbar is not part of the current feature.
 - Rich text, syntax highlighting, diagnostics, search/replace, file persistence, and collaborative editing are outside scope.
 - The widget uses the reusable project widget library and the UI foundation required by the project constitution.
-

@@ -7,6 +7,8 @@ description: "Dependency-ordered implementation tasks for Git graph history"
 
 **Input**: Design documents from `/specs/007-git-graph-history/`
 
+DiffEditor implementation tasks were extracted to `/specs/008-diff-editor/tasks.md`; 007 retains only the project-page integration boundary.
+
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/project-history.md, quickstart.md
 
 **Tests**: Automated topology, repository integration, page contract, structural, and performance tests are required by the measurable outcomes and validation plan.
@@ -119,6 +121,38 @@ description: "Dependency-ordered implementation tasks for Git graph history"
 
 ---
 
+## Phase 7: User Story 5 - Inspect File Diffs in a Diff Editor (Priority: P2)
+
+**Goal**: Parse and render selected file diffs with fixed line-number gutters, code-only horizontal scrolling, synchronized vertical scrolling, and interactive scrollbar controls.
+
+**Independent Test**: Select short, multi-hunk, long-line, and large changed files; verify parsed content, line numbering, pane synchronization, thumb/track interactions, hover colors, file switching, and visible-row performance.
+
+### Tests for User Story 5
+
+- [ ] T029 [US5] Add parser fixtures covering context, additions, deletions, multiple hunks, empty ranges, and hidden diff headers in `crates/widget/src/diff_editor.rs`
+- [ ] T030 [P] [US5] Add interaction coverage for fixed gutter, synchronized vertical offsets, code-only horizontal offsets, thumb dragging, track clicks, hover colors, and offset clamping in `crates/zit/tests/project_page_contract.rs`
+- [ ] T031 [P] [US5] Add regression coverage for switching from a long diff to a short diff without stale virtualization indices or scroll offsets in `crates/zit/tests/project_page_contract.rs`
+
+### Implementation for User Story 5
+
+- [ ] T032 [US5] Formalize parsed diff row types and hunk line-number calculation in `crates/widget/src/diff_editor.rs`
+- [ ] T033 [US5] Split DiffEditor rendering into a fixed gutter pane and a horizontally scrollable code pane with a shared vertical synchronization contract in `crates/widget/src/diff_editor.rs`
+- [ ] T034 [US5] Preserve visible-row virtualization, overscan, total content height, dynamic gutter width, bottom clearance, and stale-range clamping in `crates/widget/src/diff_editor.rs`
+- [ ] T035 [US5] Implement axis-correct scrollbar geometry, thumb scaling, drag mapping, track-page jumps, hover/drag colors, and window-level drag capture in `crates/widget/src/diff_editor.rs`
+- [ ] T036 [US5] Connect selected commit file loading to DiffEditor reset/update behavior and preserve loading/error/empty states in `crates/zit/src/project/page.rs`
+- [ ] T037 [US5] Extend ScrollContainer with vertical thumb drag, track-page jumps, hover/drag colors, and window-level drag capture without storing invalid frame-scoped elements in `crates/widget/src/scroll_container.rs`
+
+**Checkpoint**: User Story 5 independently provides a readable, performant, and fully navigable selected-file diff view.
+
+---
+
+## Phase 8: Polish & Cross-Cutting Concerns
+
+- [ ] T038 [P] Add diff editor acceptance scenarios and expected scrollbar behavior to `specs/007-git-graph-history/quickstart.md`
+- [ ] T039 Run formatting, workspace checks, graph tests, repository integration tests, and diff interaction regressions; record results in `specs/007-git-graph-history/quickstart.md`
+
+---
+
 ## Phase 6: User Story 4 - View the Graph in Project History (Priority: P2)
 
 **Goal**: Render arbitrary graph tracks in the existing History DataGrid while preserving all established page behavior.
@@ -172,6 +206,7 @@ description: "Dependency-ordered implementation tasks for Git graph history"
 - **US2 Graph Topology (Phase 4)**: Depends on US1's ordered commit stream and Foundation's graph records.
 - **US3 Commit Context (Phase 5)**: Depends on US1 roots/traversal and US2 track construction.
 - **US4 History Presentation (Phase 6)**: Depends on enriched tracks from US2 and US3.
+- **US5 Diff Editor (Phase 6)**: Depends on US4's selected-file loading contract; widget parsing and interaction work can proceed independently.
 - **Polish (Phase 7)**: Depends on every selected story.
 
 ### User Story Dependency Graph
@@ -188,6 +223,7 @@ Setup → Foundation → US1 Repository-Wide History → US2 Graph Topology
 - **US2 (P1)**: Uses US1 ordering but is independently testable through pure topology fixtures.
 - **US3 (P2)**: Adds labels and metadata without altering topology.
 - **US4 (P2)**: Consumes completed graph tracks and preserves page contracts.
+- **US5 (P2)**: Consumes selected changed-file diffs and is independently testable through widget and page contracts.
 
 ### Within Each User Story
 
@@ -203,6 +239,7 @@ Setup → Foundation → US1 Repository-Wide History → US2 Graph Topology
 - Test-design tasks within US1, US2, US3, and US4 can be authored in parallel when they touch separate files; tasks sharing one file remain logically coordinated.
 - T029 and T030 can run in parallel because they target separate test files.
 - T035 and T036 can run in parallel after all stories.
+- T032 and T037 require coordination in the widget layer; T030, T031, and T038 can proceed in parallel with repository-only work.
 
 ## Parallel Example: User Story 2
 
@@ -236,7 +273,8 @@ Task T030: Add domain/widget structural contracts in crates/zit/tests/project_gr
 2. **US2**: Supplied lane and edge algorithm.
 3. **US3**: HEAD, labels, and complete commit context.
 4. **US4**: GPUI graph presentation inside DataGrid.
-5. **Polish**: Performance, docs, quickstart, and full quality gates.
+5. **US5**: Parsed, virtualized DiffEditor with fixed gutters and interactive scrolling.
+6. **Polish**: Performance, docs, quickstart, and full quality gates.
 
 ### Team Strategy
 
@@ -250,8 +288,15 @@ Repository implementation in `project/repository.rs` stays serialized. Test fixt
 - [x] T049 Split the ready History content into equal upper and lower panes, retain the toolbar and grid above, and reserve an empty lower pane.
 - [x] T050 Connect DataGrid row selection to ProjectPage and render selected commit metadata in the lower-left detail panel while reserving the lower-right panel.
 - [x] T051 Split the lower-left panel vertically and asynchronously load and display the selected commit's changed file paths using gix tree differences.
+- [ ] T060 [US4] Remove outer padding from the History changed-file list panel while preserving row-level hit-target padding in `crates/zit/src/project/page.rs`, and add a page contract assertion in `crates/zit/tests/project_page_contract.rs`.
+- [X] T061 [US3] Extract author and committer independently from gix and store both identities on `CommitSummary` in `crates/zit/src/project/repository.rs` and `crates/zit/src/project/model.rs`.
+- [X] T062 [US3] Render the selected commit's committer as `name <email>` independently from author in `crates/zit/src/project/page.rs`.
+- [ ] T063 [US3] Add regression coverage for distinct author/committer identities and missing/invalid metadata handling in `crates/zit/tests/project_repository_integration.rs` and `crates/zit/tests/project_page_contract.rs`.
+- [X] T064 [US4] Remove the redundant `Message` label while preserving complete title/body rendering in `crates/zit/src/project/page.rs`.
+- [ ] T065 [US4] Add a page contract assertion that selected commit details render message content without a `Message` label in `crates/zit/tests/project_page_contract.rs`.
+- [X] T066 [US4] Add measured-bounds resize handling to the Grid/lower-pane, lower-pane left/right, and lower-left metadata/files boundaries in `crates/zit/src/project/page.rs`.
 
 - `[P]` marks only work that can proceed without an incomplete dependency in the same phase.
-- `[US1]` through `[US4]` provide direct traceability to `spec.md`.
+- `[US1]` through `[US5]` provide direct traceability to `spec.md`.
 - Every task preserves the exact requested gix and supplied-algorithm constraints.
 - Commit after each coherent task group and validate at every checkpoint.

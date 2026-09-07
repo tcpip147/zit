@@ -2,13 +2,13 @@ use std::{rc::Rc, sync::Arc};
 
 use gpui::{
     AccessibleAction, AnyElement, Bounds, Context, CursorStyle, Entity, EventEmitter,
-    InteractiveElement, MouseButton, Path, PathBuilder, Pixels, Point, Render, Role,
+    InteractiveElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Path, PathBuilder, Pixels, Point, Render, Role,
     StatefulInteractiveElement, Task, Window, canvas, deferred, div, point, prelude::*, px, quad,
     rgb, size, svg,
 };
-use widget::{DataGrid, DataGridCell, DataGridColumn, DataGridRow, DiffEditor, ScrollContainer};
+use widget::{DataGrid, DataGridCell, DataGridColumn, DataGridRow, DiffEditor, ScrollContainer, TextEditor};
 
-use super::{ProjectId, ProjectLoadState, ProjectMetadata, RepositoryLoader, build_commit_graph};
+use super::{ProjectId, ProjectLoadState, ProjectMetadata, RepositoryLoader, WorkingTreeFile, build_commit_graph};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProjectToolbarAction {
@@ -75,6 +75,26 @@ pub struct ProjectPage {
     commit_scroll: Option<Entity<ScrollContainer>>,
     files_scroll: Option<Entity<ScrollContainer>>,
     diff_editor: Option<Entity<DiffEditor>>,
+    file_status_diff: Option<Entity<DiffEditor>>,
+    commit_message: Option<Entity<TextEditor>>,
+    push_after_commit: bool,
+    amend_last_commit: bool,
+    horizontal_split: f32,
+    vertical_split: f32,
+    resize_drag: Option<(bool, f32, f32, f32)>,
+    resize_extent: (f32, f32),
+    history_upper_split: f32,
+    history_lower_split: f32,
+    history_details_split: f32,
+    history_resize_drag: Option<(u8, f32, f32, f32, f32)>,
+    history_resize_extent: (f32, f32),
+    history_resize_origin: (f32, f32),
+    history_details_resize_extent: f32,
+    history_details_resize_origin: f32,
+    file_status_files: Option<Result<Vec<WorkingTreeFile>, String>>,
+    file_status_selected: Option<WorkingTreeFile>,
+    file_status_generation: u64,
+    file_status_task: Option<Task<()>>,
 }
 
 impl ProjectPage {
@@ -99,6 +119,26 @@ impl ProjectPage {
             commit_scroll: None,
             files_scroll: None,
             diff_editor: None,
+            file_status_diff: None,
+            commit_message: None,
+            push_after_commit: false,
+            amend_last_commit: false,
+            horizontal_split: 1.,
+            vertical_split: 1.,
+            resize_drag: None,
+            resize_extent: (1., 1.),
+            history_upper_split: 1.,
+            history_lower_split: 1.,
+            history_details_split: 1.,
+            history_resize_drag: None,
+            history_resize_extent: (1., 1.),
+            history_resize_origin: (0., 0.),
+            history_details_resize_extent: 1.,
+            history_details_resize_origin: 0.,
+            file_status_files: None,
+            file_status_selected: None,
+            file_status_generation: 0,
+            file_status_task: None,
         }
     }
 
@@ -123,6 +163,184 @@ impl ProjectPage {
         if section == ProjectSection::History && matches!(self.state, ProjectLoadState::NotLoaded) {
             self.start_load(cx);
         }
+        if section == ProjectSection::FileStatus { self.load_file_status(cx); }
+    }
+
+    fn load_file_status(&mut self, cx: &mut Context<Self>) {
+        self.file_status_generation = self.file_status_generation.wrapping_add(1);
+        let generation = self.file_status_generation;
+        let loader = self.loader.clone();
+        let metadata = self.metadata.clone();
+        self.file_status_files = None;
+        self.file_status_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async move { loader.load_working_tree_files(&metadata) }).await;
+            let _ = this.update(cx, |page, cx| {
+                if page.file_status_generation != generation { return; }
+                page.file_status_files = Some(result.map_err(|e| e.to_string()));
+                page.file_status_task = None;
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn select_file_status_file(&mut self, file: WorkingTreeFile, cx: &mut Context<Self>) {
+        self.file_status_selected = Some(file.clone());
+        let Some(editor) = self.file_status_diff.clone() else { return; };
+        let loader = self.loader.clone();
+        let metadata = self.metadata.clone();
+        cx.spawn(async move |_, cx| {
+            let result = cx.background_executor().spawn(async move { loader.load_working_tree_diff(&metadata, &file.path, file.staged) }).await;
+            if let Ok(diff) = result { editor.update(cx, |editor, cx| editor.set_diff(diff, cx)); }
+        }).detach();
+        cx.notify();
+    }
+
+    fn mutate_file_status(&mut self, file: WorkingTreeFile, cx: &mut Context<Self>) {
+        let loader = self.loader.clone();
+        let metadata = self.metadata.clone();
+        self.file_status_task = Some(cx.spawn(async move |this, cx| {
+            let path = file.path.clone();
+            let result = cx.background_executor().spawn(async move {
+                if file.staged { loader.unstage_file(&metadata, &path) } else { loader.stage_file(&metadata, &path) }
+            }).await;
+            let _ = this.update(cx, |page, cx| {
+                if result.is_ok() { page.load_file_status(cx); } else { cx.notify(); }
+            });
+        }));
+    }
+
+    fn start_file_status_resize(&mut self, horizontal: bool, event: &MouseDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let position = if horizontal { event.position.x.as_f32() } else { event.position.y.as_f32() };
+        let weight = if horizontal { self.horizontal_split } else { self.vertical_split };
+        let extent = if horizontal { self.resize_extent.0 } else { self.resize_extent.1 };
+        self.resize_drag = Some((horizontal, position, weight, extent.max(1.)));
+        cx.stop_propagation();
+    }
+
+    fn drag_file_status_resize(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let Some((horizontal, start, initial, extent)) = self.resize_drag else { return; };
+        let position = if horizontal { event.position.x.as_f32() } else { event.position.y.as_f32() };
+        let total = if horizontal { 3. } else { 2. };
+        let delta = (position - start) / extent * total;
+        // The 6px resizer is only a hit target. The split itself remains unconstrained
+        // except for a tiny positive weight so either side can still receive input.
+        let value = (initial + delta).clamp(0.01, total - 0.01);
+        if horizontal { self.horizontal_split = value; } else { self.vertical_split = value; }
+        cx.notify();
+    }
+
+    fn stop_file_status_resize(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.resize_drag.take().is_some() { cx.notify(); }
+    }
+
+    fn file_status_resize_capture(&self, cx: &mut Context<Self>) -> AnyElement {
+        let page = cx.entity().downgrade();
+        canvas(
+            {
+                let page = page.clone();
+                move |bounds, _, cx| {
+                    let _ = page.update(cx, |page, _| {
+                        page.resize_extent = (bounds.size.width.as_f32().max(1.), bounds.size.height.as_f32().max(1.));
+                    });
+                }
+            },
+            move |_, _, window, _| {
+                let move_page = page.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, _, window, cx| {
+                    let _ = move_page.update(cx, |page, cx| {
+                        page.drag_file_status_resize(event, window, cx);
+                    });
+                });
+                let page = page.clone();
+                window.on_mouse_event(move |event: &MouseUpEvent, _, window, cx| {
+                    if event.button == MouseButton::Left {
+                        let _ = page.update(cx, |page, cx| {
+                            page.stop_file_status_resize(event, window, cx);
+                        });
+                    }
+                });
+            },
+        )
+        .absolute()
+        .inset_0()
+        .into_any_element()
+    }
+
+    fn start_history_resize(&mut self, kind: u8, event: &MouseDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let horizontal = kind == 1;
+        let position = if horizontal { event.position.x.as_f32() } else { event.position.y.as_f32() };
+        let weight = match kind { 0 => self.history_upper_split, 1 => self.history_lower_split, _ => self.history_details_split };
+        let extent = if kind == 2 {
+            self.history_details_resize_extent
+        } else if horizontal {
+            self.history_resize_extent.0
+        } else {
+            self.history_resize_extent.1
+        };
+        let extent = extent.max(1.);
+        let origin = if kind == 2 {
+            self.history_details_resize_origin
+        } else if horizontal {
+            self.history_resize_origin.0
+        } else {
+            self.history_resize_origin.1
+        };
+        let boundary_start = origin + extent * weight / 2.;
+        self.history_resize_drag = Some((kind, position, boundary_start, weight, extent));
+        cx.stop_propagation();
+    }
+
+    fn drag_history_resize(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        let Some((kind, mouse_start, boundary_start, _, extent)) = self.history_resize_drag else { return; };
+        let horizontal = kind == 1;
+        let position = if horizontal { event.position.x.as_f32() } else { event.position.y.as_f32() };
+        let total = 2.;
+        let boundary_position = boundary_start + (position - mouse_start);
+        let origin = if kind == 2 {
+            self.history_details_resize_origin
+        } else if horizontal {
+            self.history_resize_origin.0
+        } else {
+            self.history_resize_origin.1
+        };
+        let value = ((boundary_position - origin) / extent * total).clamp(0.01, total - 0.01);
+        match kind { 0 => self.history_upper_split = value, 1 => self.history_lower_split = value, _ => self.history_details_split = value }
+        cx.notify();
+    }
+
+    fn stop_history_resize(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.history_resize_drag.take().is_some() { cx.notify(); }
+    }
+
+    fn history_resize_capture(&self, cx: &mut Context<Self>) -> AnyElement {
+        let page = cx.entity().downgrade();
+        canvas(
+            {
+                let page = page.clone();
+                move |bounds, _, cx| {
+                    let _ = page.update(cx, |page, _| {
+                        page.history_resize_extent = (bounds.size.width.as_f32().max(1.), bounds.size.height.as_f32().max(1.));
+                        page.history_resize_origin = (bounds.origin.x.as_f32(), bounds.origin.y.as_f32());
+                    });
+                }
+            },
+            move |_, _, window, _| {
+                let move_page = page.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, _, window, cx| {
+                    let _ = move_page.update(cx, |page, cx| page.drag_history_resize(event, window, cx));
+                });
+                let page = page.clone();
+                window.on_mouse_event(move |event: &MouseUpEvent, _, window, cx| {
+                    if event.button == MouseButton::Left {
+                        let _ = page.update(cx, |page, cx| page.stop_history_resize(event, window, cx));
+                    }
+                });
+            },
+        )
+        .absolute()
+        .inset_0()
+        .into_any_element()
     }
 
     pub fn update_metadata(&mut self, metadata: ProjectMetadata, cx: &mut Context<Self>) {
@@ -133,6 +351,9 @@ impl ProjectPage {
     pub fn activate(&mut self, cx: &mut Context<Self>) {
         if matches!(self.state, ProjectLoadState::NotLoaded) {
             self.start_load(cx);
+        }
+        if self.selected_section == ProjectSection::FileStatus && self.file_status_files.is_none() {
+            self.load_file_status(cx);
         }
     }
 
@@ -478,7 +699,6 @@ impl ProjectPage {
                 format!("{} <{}>", commit.committer_name, commit.committer_email),
             ))
             .child(div().h(px(8.)).flex_none())
-            .child(div().text_color(rgb(0x64748b)).child("Message"))
             .child(
                 div()
                     .min_h_0()
@@ -564,7 +784,6 @@ impl ProjectPage {
         div()
             .w_full()
             .min_h_0()
-            .p(px(5.))
             .flex()
             .flex_col()
             .child(content)
@@ -624,7 +843,8 @@ impl ProjectPage {
                 .child(
                     div()
                         .id("history-upper-pane")
-                        .flex_1()
+                        .flex_basis(px(0.))
+                        .flex_grow(self.history_upper_split)
                         .min_h_0()
                         .overflow_hidden()
                         .flex()
@@ -647,8 +867,21 @@ impl ProjectPage {
                 )
                 .child(
                     div()
+                        .id("history-grid-resizer")
+                        .h(px(8.))
+                        .my(px(-4.))
+                        .flex_none()
+                        .cursor(CursorStyle::ResizeUpDown)
+                        .on_mouse_down(MouseButton::Left, cx.listener(|page, event, window, cx| page.start_history_resize(0, event, window, cx)))
+                        .on_mouse_move(cx.listener(Self::drag_history_resize))
+                        .on_mouse_up(MouseButton::Left, cx.listener(Self::stop_history_resize))
+                        .on_mouse_up_out(MouseButton::Left, cx.listener(Self::stop_history_resize)),
+                )
+                .child(
+                    div()
                         .id("history-lower-pane")
-                        .flex_1()
+                        .flex_basis(px(0.))
+                        .flex_grow((2. - self.history_upper_split).max(0.01))
                         .min_h_0()
                         .flex()
                         .border_t_1()
@@ -657,7 +890,8 @@ impl ProjectPage {
                         .child(
                             div()
                                 .id("history-commit-details")
-                                .w_1_2()
+                                .flex_basis(px(0.))
+                                .flex_grow(self.history_lower_split)
                                 .h_full()
                                 .min_w_0()
                                 .overflow_hidden()
@@ -666,17 +900,47 @@ impl ProjectPage {
                                 .border_r_1()
                                 .border_color(rgb(0xcbd5e1))
                                 .child(
+                                    canvas(
+                                        {
+                                            let page = cx.entity().downgrade();
+                                            move |bounds, _, cx| {
+                                                let _ = page.update(cx, |page, _| {
+                                                    page.history_details_resize_extent = bounds.size.height.as_f32().max(1.);
+                                                    page.history_details_resize_origin = bounds.origin.y.as_f32();
+                                                });
+                                            }
+                                        },
+                                        |_, _, _, _| (),
+                                    )
+                                    .absolute()
+                                    .inset_0(),
+                                )
+                                .child(
                                     div()
                                         .id("history-commit-metadata")
-                                        .flex_1()
+                                        .flex_basis(px(0.))
+                                        .flex_grow(self.history_details_split)
                                         .min_h_0()
                                         .overflow_hidden()
                                         .child(commit_scroll),
                                 )
                                 .child(
                                     div()
+                                        .id("history-details-resizer")
+                                        .h(px(8.))
+                                        .my(px(-4.))
+                                        .flex_none()
+                                        .cursor(CursorStyle::ResizeUpDown)
+                                        .on_mouse_down(MouseButton::Left, cx.listener(|page, event, window, cx| page.start_history_resize(2, event, window, cx)))
+                                        .on_mouse_move(cx.listener(Self::drag_history_resize))
+                                        .on_mouse_up(MouseButton::Left, cx.listener(Self::stop_history_resize))
+                                        .on_mouse_up_out(MouseButton::Left, cx.listener(Self::stop_history_resize)),
+                                )
+                                .child(
+                                    div()
                                         .id("history-commit-files")
-                                        .flex_1()
+                                        .flex_basis(px(0.))
+                                        .flex_grow((2. - self.history_details_split).max(0.01))
                                         .min_h_0()
                                         .overflow_hidden()
                                         .border_t_1()
@@ -684,10 +948,12 @@ impl ProjectPage {
                                         .child(files_scroll),
                                 ),
                         )
+                        .child(div().id("history-lower-resizer").w(px(8.)).mx(px(-4.)).flex_none().cursor(CursorStyle::ResizeLeftRight).on_mouse_down(MouseButton::Left, cx.listener(|page, event, window, cx| page.start_history_resize(1, event, window, cx))).on_mouse_move(cx.listener(Self::drag_history_resize)).on_mouse_up(MouseButton::Left, cx.listener(Self::stop_history_resize)).on_mouse_up_out(MouseButton::Left, cx.listener(Self::stop_history_resize)))
                         .child(
                             div()
                                 .id("history-lower-right-pane")
-                                .w_1_2()
+                                .flex_basis(px(0.))
+                                .flex_grow((2. - self.history_lower_split).max(0.01))
                                 .h_full()
                                 .min_h_0()
                                 .min_w_0()
@@ -699,6 +965,7 @@ impl ProjectPage {
                                 ),
                         ),
                 )
+                .child(self.history_resize_capture(cx))
                 .into_any_element()
             },
             ProjectLoadState::Failed { message, .. } => {
@@ -1161,10 +1428,7 @@ impl ProjectPage {
 
     fn selected_content(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let body = match self.selected_section {
-            ProjectSection::FileStatus => div()
-                .id("file-status-content")
-                .child("Working tree changes will appear here.")
-                .into_any_element(),
+            ProjectSection::FileStatus => self.file_status_content(cx),
             ProjectSection::History => self.state_content(cx),
             ProjectSection::Search => div()
                 .id("search-content")
@@ -1180,6 +1444,142 @@ impl ProjectPage {
             .flex()
             .flex_col()
             .child(body)
+            .into_any_element()
+    }
+
+    fn file_status_content(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let diff = self.file_status_diff.get_or_insert_with(|| cx.new(DiffEditor::new)).clone();
+        let message = self.commit_message.get_or_insert_with(|| cx.new(TextEditor::new)).clone();
+        let files = self.file_status_files.clone();
+        let rows = |staged: bool, page: &mut ProjectPage, cx: &mut Context<Self>| {
+            match &files {
+                None => div().p_2().text_color(rgb(0x64748b)).child("Loading changes...").into_any_element(),
+                Some(Err(error)) => div().p_2().text_color(rgb(0xdc2626)).child(error.clone()).into_any_element(),
+                Some(Ok(files)) => {
+                    let matches = files.iter().filter(|file| file.staged == staged).cloned().collect::<Vec<_>>();
+                    if matches.is_empty() { return div().p_2().text_color(rgb(0x64748b)).child(if staged { "No staged files." } else { "No unstaged files." }).into_any_element(); }
+                    div().flex_1().children(matches.into_iter().map(|file| {
+                        let selected = page.file_status_selected.as_ref() == Some(&file);
+                        let label = file.path.clone();
+                        let action_file = file.clone();
+                        div().id(format!("file-status-row-{}-{}", if staged { "staged" } else { "unstaged" }, label.clone())).w_full().px_2().py_1().flex().items_center().gap_2().cursor(CursorStyle::PointingHand).when(selected, |e| e.bg(rgb(0xdbeafe))).hover(|s| s.bg(rgb(0xf1f5f9))).on_click(cx.listener(move |page, _, _, cx| page.select_file_status_file(file.clone(), cx))).child(div().flex_1().child(label)).child(div().id(format!("file-status-action-{}", action_file.path)).px_1().text_color(rgb(0x2563eb)).cursor(CursorStyle::PointingHand).on_click(cx.listener(move |page, _, _, cx| page.mutate_file_status(action_file.clone(), cx))).child(if staged { "Unstage" } else { "Stage" }))
+                    })).into_any_element()
+                }
+            }
+        };
+        let file_list = |id: &'static str, title: &'static str, content: AnyElement| {
+            div()
+                .id(id)
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .child(div().px_2().py_1().bg(rgb(0xf1f5f9)).text_color(rgb(0x475569)).child(title))
+                .child(content)
+        };
+        div()
+            .id("file-status-content")
+            .size_full()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .gap_0()
+            .child(
+                div()
+                    .flex_1()
+                .min_h_0()
+                .flex()
+                    .gap_0()
+                    .child(
+                        div()
+                            .id("file-status-workflow")
+                            .flex_basis(px(0.))
+                            .flex_grow(self.horizontal_split)
+                            .min_w_0()
+                            .min_h_0()
+                            .flex()
+                            .flex_col()
+                            .gap_0()
+                            .border_r_1()
+                            .border_color(rgb(0xcbd5e1))
+                            .child(file_list("staged-files", "Staged Changes", rows(true, self, cx)).flex_basis(px(0.)).flex_grow(self.vertical_split).border_b_1().border_color(rgb(0xcbd5e1)))
+                            .child(div().id("file-status-horizontal-resizer").h(px(8.)).my(px(-4.)).flex_none().cursor(CursorStyle::ResizeUpDown).on_mouse_down(MouseButton::Left, cx.listener(|page, event, window, cx| page.start_file_status_resize(false, event, window, cx))).on_mouse_move(cx.listener(Self::drag_file_status_resize)).on_mouse_up(MouseButton::Left, cx.listener(Self::stop_file_status_resize)).on_mouse_up_out(MouseButton::Left, cx.listener(Self::stop_file_status_resize)))
+                            .child(file_list("unstaged-files", "Unstaged Changes", rows(false, self, cx)).flex_basis(px(0.)).flex_grow((2. - self.vertical_split).max(0.01))),
+                    )
+                    .child(div().id("file-status-vertical-resizer").w(px(8.)).mx(px(-4.)).flex_none().cursor(CursorStyle::ResizeLeftRight).on_mouse_down(MouseButton::Left, cx.listener(|page, event, window, cx| page.start_file_status_resize(true, event, window, cx))).on_mouse_move(cx.listener(Self::drag_file_status_resize)).on_mouse_up(MouseButton::Left, cx.listener(Self::stop_file_status_resize)).on_mouse_up_out(MouseButton::Left, cx.listener(Self::stop_file_status_resize)))
+                    .child(
+                        div()
+                            .id("file-status-diff")
+                            .flex_basis(px(0.))
+                            .flex_grow((3. - self.horizontal_split).max(0.01))
+                            .min_w_0()
+                            .min_h_0()
+                            .child(diff),
+                    )
+                    .child(self.file_status_resize_capture(cx)),
+            )
+            .child(
+                div()
+                    .id("commit-box")
+                    .flex_none()
+                    .h(px(148.))
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .border_t_1()
+                    .border_color(rgb(0xcbd5e1))
+                    .px_2()
+                    .py_1()
+                    .child(div().text_color(rgb(0x475569)).child("Author <Email>"))
+                    .child(div().id("commit-message-editor").flex_1().min_h_0().border_1().border_color(rgb(0xcbd5e1)).child(message))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(self.commit_option("push-after-commit", "Push immediately after commit", self.push_after_commit, cx))
+                            .child(self.commit_option("amend-last-commit", "Amend last commit", self.amend_last_commit, cx)),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .flex()
+                            .justify_end()
+                            .child(div().id("commit-button").px_3().py_1().bg(rgb(0x2563eb)).text_color(rgb(0xffffff)).cursor(CursorStyle::PointingHand).on_click(cx.listener(|page, _, _, cx| page.commit_file_status(cx))).child("Commit")),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn commit_file_status(&mut self, cx: &mut Context<Self>) {
+        let Some(input) = self.commit_message.clone() else { return; };
+        let message = input.read(cx).value().trim().to_owned();
+        if message.is_empty() { return; }
+        let loader = self.loader.clone();
+        let metadata = self.metadata.clone();
+        let amend = self.amend_last_commit;
+        let push = self.push_after_commit;
+        self.file_status_task = Some(cx.spawn(async move |this, cx| {
+            let result = cx.background_executor().spawn(async move { loader.commit_with_options(&metadata, &message, amend, push) }).await;
+            let _ = this.update(cx, |page, cx| { if result.is_ok() { page.load_file_status(cx); } else { cx.notify(); } });
+        }));
+    }
+
+    fn commit_option(&self, id: &'static str, label: &'static str, checked: bool, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .id(id)
+            .flex()
+            .items_center()
+            .gap_1()
+            .cursor(CursorStyle::PointingHand)
+            .on_click(cx.listener(move |page, _, _, cx| {
+                if id == "push-after-commit" { page.push_after_commit = !page.push_after_commit; }
+                else { page.amend_last_commit = !page.amend_last_commit; }
+                cx.notify();
+            }))
+            .child(if checked { "☑" } else { "☐" })
+            .child(label)
             .into_any_element()
     }
 }

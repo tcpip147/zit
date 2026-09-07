@@ -255,5 +255,6 @@ After the shared foundation, test authorship for behavior, accessibility, and pe
 - `[P]` marks only work that can proceed without overlapping an incomplete dependency.
 - `[US1]` through `[US4]` provide direct traceability to `spec.md`.
 - No task adds Git behavior to the widget crate.
+- [ ] T100 Add row-selection callback, proportional resize, and window-level scrollbar drag regression evidence in `specs/006-data-grid/validation/`
 - The exact requested filename remains `crates/widget/src/data-grid.rs`; Rust exports use conventional `DataGrid` identifiers.
 - Commit after each task or coherent task group and stop at each checkpoint for independent validation.

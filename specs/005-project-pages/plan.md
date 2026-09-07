@@ -67,4 +67,12 @@ When no restored projects exist, current startup code seeds three local test rep
 
 ## Validation
 
+### Current Implementation Alignment
+
+Validate the complete History flow: filter toolbar, graph grid, selected commit details, changed-file list, asynchronous first-parent diff loading, DiffEditor reset, and per-project isolation.
+
+### File Status Boundary
+
+File Status is extracted to feature 009. Project Pages supplies the navigation slot and retained page; feature 009 owns the split layout and repository status workflow.
+
 Store, session, repository, page, performance, and tab-bar contracts cover ordered uniqueness, persistence, availability isolation, stable page identity, activation-only loading, retry, stale results, canonical aliases, history summaries, empty repositories, project-local section state, and 20-project startup behavior.

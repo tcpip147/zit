@@ -44,6 +44,7 @@ description: "Completed implementation record for the current TextEditor foundat
 ## Phase 7: Validation
 
 - [X] T018 Run workspace formatting, lint, compilation, and tests for the current TextEditor foundation and record readiness in `specs/004-text-editor/checklists/requirements.md`
+- [ ] T100 Reconcile editable TextEditor behavior against the separate read-only DiffEditor boundary in `specs/004-text-editor/checklists/requirements.md`
 
 ## Dependencies and Delivery
 

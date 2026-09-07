@@ -6,7 +6,7 @@ mod store;
 
 pub use model::{
     CommitGraphEdge, CommitGraphMarker, CommitSummary, ProjectAvailability, ProjectData, ProjectId,
-    ProjectLoadState, ProjectMetadata,
+    ProjectLoadState, ProjectMetadata, WorkingTreeFile,
 };
 pub use page::{ProjectPage, ProjectPageEvent, ProjectSection, ProjectToolbarAction};
 pub use repository::{GixRepositoryLoader, RepositoryError, RepositoryLoader, build_commit_graph};

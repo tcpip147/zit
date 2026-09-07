@@ -103,9 +103,13 @@ As a user, I receive a visible explanation if the main application window cannot
 
 ## Assumptions
 
+## As-Built Alignment
+
+- The application shell is implemented in `crates/zit/src/shell.rs` with platform-specific command dispatch and asset lookup separated into `platform.rs` and `assets.rs`.
+- Startup recovery and reopen behavior are owned by `main.rs` and `startup_error.rs`; these remain part of the acceptance surface.
+
 - Repository creation, opening, and cloning workflows are outside this feature and their menu rows are placeholders.
 - Platform-specific SVGs are project-owned approximations; exact native visual equivalence is not claimed until reference-image validation is completed.
 - The current shell uses a light visual palette. Automatic dark-appearance styling and multi-scale visual certification are outside the synchronized implementation scope.
 - Operating-system resize behavior is retained by the windowing system; this feature defines the custom top chrome and commands.
 - Implementation complies with the project's GPUI, Rust workspace, and executable-entry-point constitutional constraints.
-

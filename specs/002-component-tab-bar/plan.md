@@ -55,4 +55,8 @@ The component renders one tab row and only the active retained page. Each tab us
 
 ## Validation
 
+### Current Implementation Alignment
+
+Validate retained page identity, close-veto behavior, overflow reveal, fallback icons, and independent tab instances through the widget contract tests and example.
+
 Contract tests cover initial fallback, stable page identity, duplicate rejection, deterministic closure, close veto, and metadata updates. Interactive overflow and pointer presentation are available in `crates/widget/examples/tab_bar.rs`.

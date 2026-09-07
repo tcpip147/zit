@@ -31,4 +31,4 @@
 
 ## Notes
 
-- All 16 checks pass. The references to `gix`, the 100-track bound, and the supplied graph structures are explicit product/project constraints from the request and constitution rather than discretionary design decisions.
+- All checklist checks pass. The specification also covers DiffEditor parsing, split gutter/code panes, synchronized vertical scrolling, code-only horizontal scrolling, scrollbar interactions, file-switch reset, and virtualization. References to `gix`, the 100-track bound, and supplied graph structures remain explicit project constraints.
