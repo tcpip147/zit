@@ -6,7 +6,7 @@ use gpui::{
     StatefulInteractiveElement, Task, Window, canvas, deferred, div, point, prelude::*, px, quad,
     rgb, size, svg,
 };
-use widget::{DataGrid, DataGridCell, DataGridColumn, DataGridRow, ScrollContainer};
+use widget::{DataGrid, DataGridCell, DataGridColumn, DataGridRow, DiffEditor, ScrollContainer};
 
 use super::{ProjectId, ProjectLoadState, ProjectMetadata, RepositoryLoader, build_commit_graph};
 
@@ -74,6 +74,7 @@ pub struct ProjectPage {
     file_load_task: Option<Task<()>>,
     commit_scroll: Option<Entity<ScrollContainer>>,
     files_scroll: Option<Entity<ScrollContainer>>,
+    diff_editor: Option<Entity<DiffEditor>>,
 }
 
 impl ProjectPage {
@@ -97,6 +98,7 @@ impl ProjectPage {
             file_load_task: None,
             commit_scroll: None,
             files_scroll: None,
+            diff_editor: None,
         }
     }
 
@@ -502,7 +504,11 @@ impl ProjectPage {
             }).await;
             let _ = this.update(cx, |page, cx| {
                 if page.file_load_generation != generation { return; }
-                page.selected_commit_file_diff = Some(result.map_err(|error| error.to_string()));
+                let diff = result.map_err(|error| error.to_string());
+                if let (Some(editor), Ok(diff)) = (page.diff_editor.clone(), &diff) {
+                    editor.update(cx, |editor, cx| editor.set_diff(diff.clone(), cx));
+                }
+                page.selected_commit_file_diff = Some(diff);
                 page.file_load_task = None;
                 cx.notify();
             });
@@ -566,16 +572,17 @@ impl ProjectPage {
     }
 
     fn selected_commit_file_diff(&self) -> AnyElement {
-        let Some(path) = &self.selected_commit_file else {
+        let Some(_path) = &self.selected_commit_file else {
             return div().size_full().p_3().text_color(rgb(0x64748b)).child("Select a file to view its changes.").into_any_element();
         };
-        let body = match &self.selected_commit_file_diff {
-            None => "Loading changes…".to_owned(),
-            Some(Ok(diff)) if diff.is_empty() => "No textual changes available.".to_owned(),
-            Some(Ok(diff)) => diff.clone(),
-            Some(Err(error)) => format!("Could not load changes: {error}"),
-        };
-        div().size_full().p_3().overflow_hidden().child(div().text_color(rgb(0x334155)).child(path.clone())).child(div().mt_2().whitespace_normal().child(body)).into_any_element()
+        let editor = self.diff_editor.clone();
+        div()
+            .size_full()
+            .child(editor.map_or_else(
+                || div().flex_1().p_3().child("Loading changes…").into_any_element(),
+                |editor| div().size_full().child(editor).into_any_element(),
+            ))
+            .into_any_element()
     }
 
     fn history_scrolls(&mut self, cx: &mut Context<Self>) -> (Entity<ScrollContainer>, Entity<ScrollContainer>) {
@@ -585,6 +592,7 @@ impl ProjectPage {
         let file_list = self.selected_commit_file_list(cx);
         commit.update(cx, |scroll, cx| scroll.set_content(details, cx));
         files.update(cx, |scroll, cx| scroll.set_content(file_list, cx));
+        self.diff_editor.get_or_insert_with(|| cx.new(DiffEditor::new));
         (commit, files)
     }
 
@@ -681,8 +689,14 @@ impl ProjectPage {
                                 .id("history-lower-right-pane")
                                 .w_1_2()
                                 .h_full()
+                                .min_h_0()
                                 .min_w_0()
-                                .child(self.selected_commit_file_diff()),
+                                .child(
+                                    div()
+                                        .size_full()
+                                        .min_h_0()
+                                        .child(self.selected_commit_file_diff()),
+                                ),
                         ),
                 )
                 .into_any_element()

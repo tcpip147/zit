@@ -430,39 +430,32 @@ impl RepositoryLoader for GixRepositoryLoader {
         let object_id = ObjectId::from_hex(commit_id.as_bytes()).map_err(|error| {
             RepositoryError::new(format!("Could not parse commit identity: {error}"))
         })?;
-        let commit = repository.find_commit(object_id).map_err(|error| {
+        repository.find_commit(object_id).map_err(|error| {
             RepositoryError::new(format!("Could not read selected commit: {error}"))
         })?;
-        let new_tree = commit.tree().map_err(|error| {
-            RepositoryError::new(format!("Could not read selected commit tree: {error}"))
-        })?;
-        let old_tree = commit
-            .parent_ids()
-            .next()
-            .map(|parent| {
-                let parent = repository.find_commit(parent.detach()).map_err(|error| {
-                    RepositoryError::new(format!("Could not read parent commit: {error}"))
-                })?;
-                parent.tree().map_err(|error| {
-                    RepositoryError::new(format!("Could not read parent commit tree: {error}"))
-                })
-            })
-            .transpose()?;
-        let changes = repository
-            .diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None)
-            .map_err(|error| {
-                RepositoryError::new(format!("Could not read selected commit files: {error}"))
-            })?;
-        let mut files = changes
-            .into_iter()
-            .map(|change| match change {
-                gix::object::tree::diff::ChangeDetached::Addition { location, .. }
-                | gix::object::tree::diff::ChangeDetached::Deletion { location, .. }
-                | gix::object::tree::diff::ChangeDetached::Modification { location, .. }
-                | gix::object::tree::diff::ChangeDetached::Rewrite { location, .. } => {
-                    location.to_string()
-                }
-            })
+        let output = std::process::Command::new("git")
+            .current_dir(&metadata.repository_path)
+            .args([
+                "diff-tree",
+                "--root",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                commit_id,
+            ])
+            .output()
+            .map_err(|error| RepositoryError::new(format!("Could not read selected commit files: {error}")))?;
+        if !output.status.success() {
+            return Err(RepositoryError::new(format!(
+                "Could not read selected commit files: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )));
+        }
+        let mut files = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(str::to_owned)
             .collect::<Vec<_>>();
         files.sort();
         files.dedup();

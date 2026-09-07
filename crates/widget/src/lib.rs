@@ -5,6 +5,7 @@
 
 #[path = "data-grid.rs"]
 mod data_grid;
+mod diff_editor;
 mod tab_bar;
 mod text_editor;
 mod text_input;
@@ -14,6 +15,7 @@ mod theme;
 pub use data_grid::{
     DataGrid, DataGridCell, DataGridColumn, DataGridColumnWidth, DataGridError, DataGridRow,
 };
+pub use diff_editor::DiffEditor;
 pub use tab_bar::{NF, TabBar, TabBarError, TabBarEvent, TabId, TabSpec};
 pub use theme::{
     DataGridTheme, TabBarTheme, TextEditorTheme, TextFieldTheme, Theme, ThemeColor, ThemeLoadError,
