@@ -1324,7 +1324,11 @@ impl ProjectPage {
             )
         };
         let commit_content = div()
+            // Constrain branch badges to the cell's content box. Without this, their
+            // intrinsic flex width can paint into the grid cell's right padding.
+            .w_full()
             .min_w_0()
+            .overflow_hidden()
             .flex()
             .items_center()
             .gap_1()
