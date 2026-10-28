@@ -247,23 +247,3 @@ fn add_repository_rejects_invalid_paths_and_deduplicates_valid_repositories(
         Some(first_id)
     );
 }
-
-#[gpui::test]
-fn create_repository_initializes_and_activates_a_new_child(cx: &mut TestAppContext) {
-    let directory = tempdir().unwrap();
-    let store = cx.new(|_| ProjectStore::with_loader(
-        directory.path().join("session.json"),
-        Arc::new(MetadataLoader),
-    ));
-    let repository_folder = directory.path().join("new-project");
-    std::fs::create_dir_all(&repository_folder).unwrap();
-    let id = store.update(cx, |store, cx| {
-        store.create_repository(repository_folder.clone(), "new-project".into(), cx).unwrap()
-    });
-    assert!(repository_folder.join(".git").is_dir());
-    assert_eq!(store.read_with(cx, |store, _| store.active_project().cloned()), Some(id));
-    let error = store.update(cx, |store, cx| {
-        store.create_repository(repository_folder, "new-project".into(), cx).unwrap_err()
-    });
-    assert!(error.contains("already a Git repository"));
-}

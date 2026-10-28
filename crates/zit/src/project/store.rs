@@ -37,45 +37,6 @@ pub struct GlobalProjectStore(pub Entity<ProjectStore>);
 impl Global for GlobalProjectStore {}
 
 impl ProjectStore {
-    pub fn create_repository(
-        &mut self,
-        parent: PathBuf,
-        name: String,
-        cx: &mut Context<Self>,
-    ) -> Result<ProjectId, String> {
-        let path = std::fs::canonicalize(&parent).map_err(|_| "Folder does not exist.".to_owned())?;
-        let name = name.trim();
-        if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\']) {
-            return Err("Enter a valid project name.".to_owned());
-        }
-        if path.join(".git").exists() {
-            return Err("The selected folder is already a Git repository.".to_owned());
-        }
-        let repository = match gix::init(&path) {
-            Ok(repository) => repository,
-            Err(error) => {
-                return Err(format!("Could not create Git repository: {error}"));
-            }
-        };
-        let metadata = self.loader.inspect(repository.workdir().unwrap_or(&path), Some(name));
-        let id = metadata.id.clone();
-        if self.projects.iter().any(|project| project.id == id) {
-            self.activate(&id, cx);
-            return Ok(id);
-        }
-        let page = cx.new(|_| ProjectPage::new(metadata.clone(), self.loader.clone()));
-        self.projects.push(metadata);
-        self.pages.insert(id.clone(), page.clone());
-        self.active = Some(id.clone());
-        page.update(cx, |page, cx| page.activate(cx));
-        self.persist();
-        cx.emit(ProjectStoreEvent::Restored {
-            project_ids: self.projects.iter().map(|p| p.id.clone()).collect(),
-            active: self.active.clone(),
-        });
-        cx.notify();
-        Ok(id)
-    }
     pub fn add_repository(
         &mut self,
         path: PathBuf,
