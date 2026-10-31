@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use gpui::{
     AccessibleAction, AnyElement, Context, Entity, FocusHandle, Focusable, MouseButton, Render,
     Role, Subscription, Window, WindowControlArea, actions, deferred, div, prelude::*, px, rgb,
@@ -26,7 +24,6 @@ pub struct ZitShell {
     menus: MenuState,
     about_open: bool,
     open_project: Option<(Entity<TextInput>, Entity<TextInput>)>,
-    new_repository: bool,
     open_error: Option<String>,
     active: bool,
     focus_handle: FocusHandle,
@@ -56,11 +53,9 @@ impl ZitShell {
         ];
         let project_store = ProjectStore::global(cx);
         let (tabs, active_project): (Vec<_>, _) = project_store.read_with(cx, |store, _| {
-            let mut seen_ids = HashSet::new();
             let tabs = store
                 .projects()
                 .iter()
-                .filter(|project| seen_ids.insert(project.id.clone()))
                 .filter_map(|project| {
                     store.page(&project.id).map(|page| {
                         TabSpec::new(
@@ -96,7 +91,6 @@ impl ZitShell {
             menus: MenuState::default(),
             about_open: false,
             open_project: None,
-            new_repository: false,
             open_error: None,
             active: true,
             focus_handle,
@@ -166,35 +160,7 @@ impl ZitShell {
                     bar.close(&tab_id, cx);
                 });
             }
-            ProjectStoreEvent::Restored { project_ids, active } => {
-                let existing = self
-                    .tab_bar
-                    .read_with(cx, |bar, _| bar.ids().cloned().collect::<HashSet<_>>());
-                let specs = self.project_store.read_with(cx, |store, _| {
-                    project_ids
-                        .iter()
-                        .filter(|id| !existing.contains(&widget::TabId::new(id.as_str().to_owned())))
-                        .filter_map(|id| {
-                            let project = store.projects().iter().find(|project| &project.id == id)?;
-                            let page = store.page(id)?;
-                            Some(TabSpec::new(
-                                id.as_str().to_owned(),
-                                project.display_name.clone(),
-                                NF,
-                                page,
-                            ))
-                        })
-                        .collect::<Vec<_>>()
-                });
-                self.tab_bar.update(cx, |bar, cx| {
-                    for spec in specs {
-                        let _ = bar.insert(spec, false, cx);
-                    }
-                    if let Some(active) = active {
-                        bar.select(&widget::TabId::new(active.as_str().to_owned()), cx);
-                    }
-                });
-            }
+            ProjectStoreEvent::Restored { .. } => {}
         }
     }
 
@@ -203,11 +169,10 @@ impl ZitShell {
             return;
         }
         self.menus.close();
-        if matches!(command, ShellCommand::OpenRepository | ShellCommand::NewRepository) {
+        if command == ShellCommand::OpenRepository {
             let name = cx.new(TextInput::new);
             let path = cx.new(TextInput::new);
             self.open_project = Some((name, path));
-            self.new_repository = command == ShellCommand::NewRepository;
             self.open_error = None;
         } else if command == ShellCommand::ShowAbout {
             self.about_open = true;
@@ -248,16 +213,11 @@ impl ZitShell {
             cx.notify();
             return;
         }
-        let result = self.project_store.update(cx, |store, cx| {
-            if self.new_repository {
-                store.create_repository(path.into(), name, cx)
-            } else {
-                store.add_repository(path.into(), name, cx)
-            }
-        });
-        match result
+        match self
+            .project_store
+            .update(cx, |store, cx| store.add_repository(path.into(), name, cx))
         {
-            Ok(_) => { self.open_project = None; self.new_repository = false; }
+            Ok(_) => self.open_project = None,
             Err(error) => self.open_error = Some(error),
         }
         cx.notify();
@@ -286,7 +246,7 @@ impl ZitShell {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(if self.new_repository { "New Repository" } else { "Open Project" })
+                    .child("Open Project")
                     .child(div().child("Project name").child(name.clone()))
                     .child(
                         div()
@@ -334,7 +294,7 @@ impl ZitShell {
                                     .text_color(rgb(0xffffff))
                                     .cursor_pointer()
                                     .on_click(cx.listener(Self::confirm_open))
-                                    .child(if self.new_repository { "Create" } else { "Open" }),
+                                    .child("Open"),
                             ),
                     ),
             )

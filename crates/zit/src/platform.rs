@@ -65,7 +65,7 @@ pub enum ShellCommand {
 
 impl ShellCommand {
     pub const fn is_enabled(self) -> bool {
-        !matches!(self, Self::CloneRepository)
+        !matches!(self, Self::NewRepository | Self::CloneRepository)
     }
 }
 
@@ -104,9 +104,9 @@ pub fn dispatch_window_command(command: ShellCommand, window: &mut Window, cx: &
 
     let controls = window.window_controls();
     match command {
-        ShellCommand::OpenRepository
+        ShellCommand::NewRepository
+        | ShellCommand::OpenRepository
         | ShellCommand::CloneRepository => return false,
-        ShellCommand::NewRepository => return false,
         ShellCommand::ExitApplication => cx.quit(),
         ShellCommand::ShowAbout => return false,
         ShellCommand::CloseWindow => window.remove_window(),
@@ -130,8 +130,8 @@ mod tests {
     use super::ShellCommand;
 
     #[test]
-    fn repository_commands_have_expected_availability() {
-        assert!(ShellCommand::NewRepository.is_enabled());
+    fn repository_commands_are_disabled() {
+        assert!(!ShellCommand::NewRepository.is_enabled());
         assert!(ShellCommand::OpenRepository.is_enabled());
         assert!(!ShellCommand::CloneRepository.is_enabled());
         assert!(ShellCommand::ExitApplication.is_enabled());
