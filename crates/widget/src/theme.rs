@@ -139,6 +139,7 @@ impl Default for DataGridTheme {
 
 impl Default for TextEditorTheme {
     fn default() -> Self {
+        
         Self {
             field: TextFieldTheme::default(),
             scrollbar_track: ThemeColor::rgba(0x0f172a14),
