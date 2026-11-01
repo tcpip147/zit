@@ -11,6 +11,7 @@ pub const fn controls_on_left(profile: PlatformProfile) -> bool {
 
 pub const fn control_width(profile: PlatformProfile) -> f32 {
     match profile {
+        
         PlatformProfile::Windows => WINDOWS_CONTROL_WIDTH,
         PlatformProfile::Linux => LINUX_CONTROL_WIDTH,
         PlatformProfile::MacOs => MACOS_CONTROL_SIZE + 14.0,
